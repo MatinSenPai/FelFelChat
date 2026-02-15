@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  displayName   String?
+  avatarUrl     String?   // Profile picture URL
+  bio           String?   // User bio (max 200 chars)
+  password      String
+  isSuperAdmin  Boolean   @default(false)
+  isBanned      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  lastSeen      DateTime  @default(now())
+  messages      Message[]
+  rooms         RoomMember[]
+  callsMade     CallLog[] @relation("Caller")
+  callsReceived CallLog[] @relation("Callee")
+}
+
+model Room {
+  id        String       @id @default(uuid())
+  name      String
+  type      String       @default("GROUP") // GROUP, CHANNEL, PRIVATE
+  createdBy String
+  createdAt DateTime     @default(now())
+  messages  Message[]
+  members   RoomMember[]
+}
+
+model RoomMember {
+  id       String @id @default(uuid())
+  userId   String
+  roomId   String
+  joinedAt DateTime @default(now())
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room     Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  text      String?
+  fileUrl   String?
+  fileSize  Int?
+  mimeType  String?  // MIME type of the file (e.g., image/png, video/mp4)
+  userId    String
+  roomId    String
+  replyToId String?  // ID of message being replied to
+  createdAt DateTime @default(now())
+  readBy    String   @default("")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  replyTo   Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
+
+  @@index([roomId])
+  @@index([userId])
+  @@index([replyToId])
+}
+
+model CallLog {
+  id        String    @id @default(uuid())
+  callerId  String
+  calleeId  String
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  duration  Int?
+  status    String    @default("RINGING") // RINGING, ACTIVE, ENDED, MISSED, REJECTED, TERMINATED
+  caller    User      @relation("Caller", fields: [callerId], references: [id], onDelete: Cascade)
+  callee    User      @relation("Callee", fields: [calleeId], references: [id], onDelete: Cascade)
+}
+
+model BackupLog {
+  id        String   @id @default(uuid())
+  filename  String
+  size      Int
+  createdAt DateTime @default(now())
+  note      String?
+}

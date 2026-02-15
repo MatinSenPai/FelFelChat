@@ -1,0 +1,53 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyToken } from '@/lib/jwt';
+
+export function middleware(req: NextRequest) {
+  const token = req.cookies.get('token')?.value;
+
+  const isAuthPage =
+    req.nextUrl.pathname.startsWith('/login') ||
+    req.nextUrl.pathname.startsWith('/signup');
+
+  const isAdminRoute =
+    req.nextUrl.pathname.startsWith('/admin') ||
+    req.nextUrl.pathname.startsWith('/api/admin');
+
+  const isApiAuth = req.nextUrl.pathname.startsWith('/api/auth');
+
+  // Allow auth API routes without token
+  if (isApiAuth) {
+    return NextResponse.next();
+  }
+
+  // No token
+  if (!token) {
+    if (isAuthPage) return NextResponse.next();
+    return NextResponse.redirect(new URL('/login', req.url));
+  }
+
+  // Verify token
+  const user = verifyToken(token);
+  if (!user) {
+    const response = NextResponse.redirect(new URL('/login', req.url));
+    response.cookies.delete('token');
+    return response;
+  }
+
+  // Redirect logged-in users away from auth pages
+  if (isAuthPage) {
+    return NextResponse.redirect(new URL('/', req.url));
+  }
+
+  // Admin routes: superadmin only
+  if (isAdminRoute && !user.isSuperAdmin) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|uploads/).*)',
+  ],
+};
