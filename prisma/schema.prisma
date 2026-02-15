@@ -25,13 +25,34 @@ model User {
 }
 
 model Room {
-  id        String       @id @default(uuid())
-  name      String
-  type      String       @default("GROUP") // GROUP, CHANNEL, PRIVATE
-  createdBy String
-  createdAt DateTime     @default(now())
-  messages  Message[]
-  members   RoomMember[]
+  id          String       @id @default(uuid())
+  name        String
+  type        String       @default("GROUP") // GROUP, CHANNEL, PRIVATE
+  createdBy   String
+  createdAt   DateTime     @default(now())
+  messages    Message[]
+  members     RoomMember[]
+  voiceCalls  VoiceCall[]
+}
+
+model VoiceCall {
+  id         String   @id @default(uuid())
+  roomId     String
+  callerId   String
+  calleeId   String
+  status     String   // RINGING, ACTIVE, ENDED, MISSED
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@index([roomId])
+  @@index([callerId])
+  @@index([calleeId])
+}
+
+model Settings {
+  id                    String   @id @default("default")
+  registrationEnabled   Boolean  @default(true)
+  updatedAt             DateTime @updatedAt @default(now())
 }
 
 model RoomMember {
@@ -49,6 +70,7 @@ model Message {
   id        String   @id @default(uuid())
   text      String?
   fileUrl   String?
+  fileName  String?  // Original filename for display/download
   fileSize  Int?
   mimeType  String?  // MIME type of the file (e.g., image/png, video/mp4)
   userId    String

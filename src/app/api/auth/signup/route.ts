@@ -5,6 +5,15 @@ import { signToken } from '@/lib/jwt';
 
 export async function POST(req: NextRequest) {
   try {
+    // Check if registration is enabled
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+    });
+
+    if (settings && !settings.registrationEnabled) {
+      return NextResponse.json({ error: 'registrationDisabled' }, { status: 403 });
+    }
+
     const { username, password, displayName } = await req.json();
 
     if (!username || username.length < 3 || username.length > 20) {

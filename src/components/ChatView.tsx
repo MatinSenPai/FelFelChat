@@ -24,6 +24,7 @@ interface Message {
   id: string;
   text: string | null;
   fileUrl: string | null;
+  fileName?: string | null;
   mimeType?: string | null;
   userId: string;
   createdAt: string;
@@ -32,6 +33,7 @@ interface Message {
     id: string;
     text: string | null;
     fileUrl: string | null;
+    fileName?: string | null;
     mimeType?: string | null;
     user: { id: string; username: string; displayName: string | null; avatarUrl?: string | null };
   } | null;
@@ -171,32 +173,42 @@ export default function ChatView({
   const handleFileUpload = async (file: File) => {
     setUploading(true);
     try {
-      if (file.size > 10 * 1024 * 1024) {
-        alert('File size should be less than 10MB');
+      if (file.size > 50 * 1024 * 1024) {
+        alert('File size should be less than 50MB');
         return;
       }
 
-      // Compress if it's an image
+      console.log('📁 File upload:', file.name, 'Type:', file.type, 'Size:', file.size);
+
+      // Compress ONLY if it's an image
       const isImage = file.type.startsWith('image/');
       const finalFile = isImage ? await compressImage(file) : file;
-      const mimeType = finalFile.type || file.type; // Store MIME type
+      const mimeType = file.type; // Use original file type (important!)
+
+      console.log('✅ MIME type:', mimeType);
 
       const formData = new FormData();
-      formData.append('file', finalFile); // Use finalFile here
+      formData.append('file', finalFile);
 
       const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
       const uploadData = await uploadRes.json();
 
+      console.log('📤 Upload result:', uploadData);
+
       if (uploadData.fileUrl) {
+        const messageData = {
+          fileUrl: uploadData.fileUrl,
+          fileName: file.name, // Original filename
+          fileSize: uploadData.fileSize,
+          mimeType, // Send MIME type to server
+        };
+        
+        console.log('💬 Sending message:', messageData);
+        
         await fetch(`/api/messages/${room.id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fileUrl: uploadData.fileUrl,
-            fileSize: uploadData.fileSize,
-            mimeType, // Send MIME type to server
-            text: `📎 ${uploadData.fileName}`,
-          }),
+          body: JSON.stringify(messageData),
         });
 
         const socket = getSocket();
@@ -409,7 +421,7 @@ export default function ChatView({
                     {/* Smart Media Preview */}
                     {msg.fileUrl && (() => {
                       const fileUrl = msg.fileUrl;
-                      const fileName = fileUrl.split('/').pop() || 'file';
+                      const fileName = msg.fileName || fileUrl.split('/').pop() || 'file'; // Use original name or fallback
                       const mimeType = msg.mimeType || '';
                       
                       // Determine file type from MIME type (preferred) or extension (fallback)
@@ -426,9 +438,11 @@ export default function ChatView({
                               alt={fileName}
                               onClick={() => setPreviewImage(fileUrl)}
                               style={{
-                                maxWidth: '300px',
-                                maxHeight: '300px',
-                                objectFit: 'cover',
+                                maxWidth: '100%',
+                                width: 'auto',
+                                height: 'auto',
+                                maxHeight: '250px',
+                                objectFit: 'contain',
                                 borderRadius: 8,
                                 cursor: 'pointer',
                                 transition: 'transform 0.2s, opacity 0.2s',
@@ -452,17 +466,26 @@ export default function ChatView({
                       
                       if (isAudio) {
                         return (
-                          <div style={{ marginBottom: msg.text ? 8 : 0, minWidth: 250 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                              <span style={{ fontSize: 18 }}>🎵</span>
-                              <span style={{ fontSize: 13, fontWeight: 500 }}>{fileName}</span>
+                          <div style={{ marginBottom: msg.text ? 8 : 0, minWidth: 280, maxWidth: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                              <span style={{ fontSize: 20 }}>🎵</span>
+                              <span style={{ 
+                                fontSize: 14, 
+                                fontWeight: 500, 
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis', 
+                                whiteSpace: 'nowrap',
+                                flex: 1,
+                              }}>
+                                {fileName}
+                              </span>
                             </div>
                             <audio
                               controls
                               style={{
                                 width: '100%',
-                                height: 36,
-                                borderRadius: 4,
+                                height: 40,
+                                borderRadius: 6,
                                 outline: 'none',
                               }}
                             >
@@ -492,8 +515,10 @@ export default function ChatView({
                             <video
                               controls
                               style={{
-                                maxWidth: '300px',
-                                maxHeight: '300px',
+                                maxWidth: '100%',
+                                width: 'auto',
+                                height: 'auto',
+                                maxHeight: '250px',
                                 borderRadius: 8,
                                 display: 'block',
                                 backgroundColor: '#000',

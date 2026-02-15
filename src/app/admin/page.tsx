@@ -21,6 +21,8 @@ export default function AdminDashboard() {
   const { t, locale, setLocale, dir } = useI18n();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [settingsLoading, setSettingsLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/admin/stats')
@@ -28,7 +30,35 @@ export default function AdminDashboard() {
       .then(setStats)
       .catch(console.error)
       .finally(() => setLoading(false));
+      
+    // Fetch settings
+    fetch('/api/admin/settings')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.settings) {
+          setRegistrationEnabled(data.settings.registrationEnabled);
+        }
+      })
+      .catch(console.error);
   }, []);
+
+  const handleToggleRegistration = async () => {
+    setSettingsLoading(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationEnabled: !registrationEnabled }),
+      });
+      
+      if (res.ok) {
+        setRegistrationEnabled(!registrationEnabled);
+      }
+    } catch (error) {
+      console.error('Failed to update settings:', error);
+    }
+    setSettingsLoading(false);
+  };
 
   if (!user?.isSuperAdmin) return <div style={{ padding: 40, textAlign: 'center' }}>Forbidden</div>;
 
@@ -122,6 +152,27 @@ export default function AdminDashboard() {
                 <div className="stat-card">
                   <div className="stat-value">{stats.totalRooms}</div>
                   <div className="stat-label">{t('admin.totalRooms')}</div>
+                </div>
+              </div>
+
+              {/* General Settings */}
+              <div className="card" style={{ marginBottom: 24 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>⚙️ {t('admin.generalSettings') || 'General Settings'}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('admin.registration') || 'User Registration'}</div>
+                    <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
+                      {registrationEnabled ? (t('admin.registrationEnabled') || 'New users can sign up') : (t('admin.registrationDisabled') || 'Registration is closed')}
+                    </div>
+                  </div>
+                  <button
+                    className={`btn ${registrationEnabled ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={handleToggleRegistration}
+                    disabled={settingsLoading}
+                    style={{ minWidth: 100 }}
+                  >
+                    {settingsLoading ? '...' : registrationEnabled ? (t('admin.disable') || 'Disable') : (t('admin.enable') || 'Enable')}
+                  </button>
                 </div>
               </div>
 

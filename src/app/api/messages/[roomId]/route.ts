@@ -37,6 +37,7 @@ export async function GET(
             id: true,
             text: true,
             fileUrl: true,
+            fileName: true,
             mimeType: true,
             userId: true,
             replyToId: true,
@@ -87,7 +88,7 @@ export async function POST(
       return NextResponse.json({ error: 'Only superadmin can post in channels' }, { status: 403 });
     }
 
-    const { text, fileUrl, fileSize, mimeType, replyToId } = await req.json();
+    const { text, fileUrl, fileName, fileSize, mimeType, replyToId } = await req.json();
 
     if (!text && !fileUrl) {
       return NextResponse.json({ error: 'Message cannot be empty' }, { status: 400 });
@@ -112,6 +113,7 @@ export async function POST(
       data: {
         text: text || null,
         fileUrl: fileUrl || null,
+        fileName: fileName || null,
         fileSize: fileSize || null,
         mimeType: mimeType || null,
         userId: user.id,
