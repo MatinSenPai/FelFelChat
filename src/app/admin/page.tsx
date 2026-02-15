@@ -23,6 +23,12 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [registrationEnabled, setRegistrationEnabled] = useState(true);
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [stickers, setStickers] = useState<{ id: string; fileUrl: string; fileName: string }[]>([]);
+  const [gifs, setGifs] = useState<{ id: string; fileUrl: string; fileName: string; format: string }[]>([]);
+  const [stickersLoading, setStickersLoading] = useState(false);
+  const [gifsLoading, setGifsLoading] = useState(false);
+  const [uploadingSticker, setUploadingSticker] = useState(false);
+  const [uploadingGif, setUploadingGif] = useState(false);
 
   useEffect(() => {
     fetch('/api/admin/stats')
@@ -40,7 +46,145 @@ export default function AdminDashboard() {
         }
       })
       .catch(console.error);
+    
+    // Fetch stickers and GIFs
+    fetchStickers();
+    fetchGifs();
   }, []);
+  
+  const fetchStickers = async () => {
+    setStickersLoading(true);
+    try {
+      const res = await fetch('/api/admin/stickers');
+      const data = await res.json();
+      if (data.stickers) {
+        setStickers(data.stickers);
+      }
+    } catch (error) {
+      console.error('Failed to fetch stickers:', error);
+    }
+    setStickersLoading(false);
+  };
+  
+  const fetchGifs = async () => {
+    setGifsLoading(true);
+    try {
+      const res = await fetch('/api/admin/gifs');
+      const data = await res.json();
+      if (data.gifs) {
+        setGifs(data.gifs);
+      }
+    } catch (error) {
+      console.error('Failed to fetch gifs:', error);
+    }
+    setGifsLoading(false);
+  };
+  
+  const handleStickerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/png')) {
+      alert('Please upload PNG files only');
+      return;
+    }
+    
+    if (file.size > 500 * 1024) {
+      alert('Sticker must be less than 500KB');
+      return;
+    }
+    
+    setUploadingSticker(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('userId', user!.id);
+      
+      const res = await fetch('/api/admin/stickers', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (res.ok) {
+        await fetchStickers();
+        e.target.value = '';
+      }
+    } catch (error) {
+      console.error('Failed to upload sticker:', error);
+    }
+    setUploadingSticker(false);
+  };
+  
+  const handleGifUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!['video/mp4', 'image/gif'].includes(file.type)) {
+      alert('Please upload MP4 or GIF files only');
+      return;
+    }
+    
+    if (file.size > 2 * 1024 * 1024) {
+      alert('GIF must be less than 2MB');
+      return;
+    }
+    
+    setUploadingGif(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('userId', user!.id);
+      
+      const res = await fetch('/api/admin/gifs', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (res.ok) {
+        await fetchGifs();
+        e.target.value = '';
+      }
+    } catch (error) {
+      console.error('Failed to upload gif:', error);
+    }
+    setUploadingGif(false);
+  };
+  
+  const handleDeleteSticker = async (id: string) => {
+    if (!confirm(t('admin.deleteSticker') + '?')) return;
+    
+    try {
+      const res = await fetch('/api/admin/stickers', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      
+      if (res.ok) {
+        await fetchStickers();
+      }
+    } catch (error) {
+      console.error('Failed to delete sticker:', error);
+    }
+  };
+  
+  const handleDeleteGif = async (id: string) => {
+    if (!confirm(t('admin.deleteGif') + '?')) return;
+    
+    try {
+      const res = await fetch('/api/admin/gifs', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      
+      if (res.ok) {
+        await fetchGifs();
+      }
+    } catch (error) {
+      console.error('Failed to delete gif:', error);
+    };
+  };
 
   const handleToggleRegistration = async () => {
     setSettingsLoading(true);
@@ -174,6 +318,181 @@ export default function AdminDashboard() {
                     {settingsLoading ? '...' : registrationEnabled ? (t('admin.disable') || 'Disable') : (t('admin.enable') || 'Enable')}
                   </button>
                 </div>
+              </div>
+
+              {/* Sticker Management */}
+              <div className="card" style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 600 }}>🎨 {t('admin.stickers')}</h3>
+                  <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
+                    {t('admin.totalStickers')}: {stickers.length}
+                  </div>
+                </div>
+                
+                {/* Upload Button */}
+                <label
+                  htmlFor="sticker-upload"
+                  className="btn btn-primary"
+                  style={{ cursor: 'pointer', marginBottom: 16, display: 'inline-block' }}
+                >
+                  {uploadingSticker ? t('admin.uploading') : t('admin.uploadSticker')}
+                  <input
+                    id="sticker-upload"
+                    type="file"
+                    accept="image/png"
+                    onChange={handleStickerUpload}
+                    disabled={uploadingSticker}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                
+                {/* Stickers Grid */}
+                {stickersLoading ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                    <div className="spinner" style={{ width: 30, height: 30 }} />
+                  </div>
+                ) : stickers.length === 0 ? (
+                  <p style={{ color: 'var(--fg-muted)', textAlign: 'center', padding: 20 }}>
+                    {t('picker.noStickers')}
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 12 }}>
+                    {stickers.map((sticker) => (
+                      <div
+                        key={sticker.id}
+                        style={{
+                          position: 'relative',
+                          background: 'var(--bg-tertiary)',
+                          borderRadius: 8,
+                          padding: 8,
+                          aspectRatio: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <img
+                          src={sticker.fileUrl}
+                          alt={sticker.fileName}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                          }}
+                        />
+                        <button
+                          onClick={() => handleDeleteSticker(sticker.id)}
+                          className="btn btn-danger btn-sm"
+                          style={{
+                            position: 'absolute',
+                            top: 4,
+                            right: 4,
+                            padding: '2px 6px',
+                            fontSize: 11,
+                          }}
+                          title={t('admin.deleteSticker')}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* GIF Management */}
+              <div className="card" style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 600 }}>🎬 {t('admin.gifs')}</h3>
+                  <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
+                    {t('admin.totalGifs')}: {gifs.length}
+                  </div>
+                </div>
+                
+                {/* Upload Button */}
+                <label
+                  htmlFor="gif-upload"
+                  className="btn btn-primary"
+                  style={{ cursor: 'pointer', marginBottom: 16, display: 'inline-block' }}
+                >
+                  {uploadingGif ? t('admin.uploading') : t('admin.uploadGif')}
+                  <input
+                    id="gif-upload"
+                    type="file"
+                    accept="video/mp4,image/gif"
+                    onChange={handleGifUpload}
+                    disabled={uploadingGif}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                
+                {/* GIFs Grid */}
+                {gifsLoading ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                    <div className="spinner" style={{ width: 30, height: 30 }} />
+                  </div>
+                ) : gifs.length === 0 ? (
+                  <p style={{ color: 'var(--fg-muted)', textAlign: 'center', padding: 20 }}>
+                    {t('picker.noGifs')}
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 12 }}>
+                    {gifs.map((gif) => (
+                      <div
+                        key={gif.id}
+                        style={{
+                          position: 'relative',
+                          background: 'var(--bg-tertiary)',
+                          borderRadius: 8,
+                          padding: 8,
+                          aspectRatio: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {gif.format === 'mp4' ? (
+                          <video
+                            src={gif.fileUrl}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain',
+                            }}
+                          />
+                        ) : (
+                          <img
+                            src={gif.fileUrl}
+                            alt={gif.fileName}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain',
+                            }}
+                          />
+                        )}
+                        <button
+                          onClick={() => handleDeleteGif(gif.id)}
+                          className="btn btn-danger btn-sm"
+                          style={{
+                            position: 'absolute',
+                            top: 4,
+                            right: 4,
+                            padding: '2px 6px',
+                            fontSize: 11,
+                          }}
+                          title={t('admin.deleteGif')}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Storage Info */}

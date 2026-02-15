@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import { getSocket } from '@/lib/socket';
 import ImagePreviewModal from './ImagePreviewModal';
 import UserProfileModal from './UserProfileModal';
+import EmojiStickerPicker from './EmojiStickerPicker';
 import { compressImage } from '@/lib/imageCompression';
 
 interface User {
@@ -26,6 +27,7 @@ interface Message {
   fileUrl: string | null;
   fileName?: string | null;
   mimeType?: string | null;
+  messageType?: string;
   userId: string;
   createdAt: string;
   user: { id: string; username: string; displayName: string | null; avatarUrl?: string | null };
@@ -77,6 +79,7 @@ export default function ChatView({
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -218,6 +221,47 @@ export default function ChatView({
       console.error('Upload failed:', err);
     }
     setUploading(false);
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    setText((prev) => prev + emoji);
+  };
+
+  const handleStickerSelect = async (stickerId: string, stickerUrl: string) => {
+    try {
+      await fetch(`/api/messages/${room.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: null,
+          fileUrl: stickerUrl,
+          messageType: 'sticker',
+          replyToId: replyingTo?.id || null,
+        }),
+      });
+      setReplyingTo(null);
+    } catch (error) {
+      console.error('Failed to send sticker:', error);
+    }
+  };
+
+  const handleGifSelect = async (gifId: string, gifUrl: string, format: string) => {
+    try {
+      await fetch(`/api/messages/${room.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: null,
+          fileUrl: gifUrl,
+          mimeType: format === 'mp4' ? 'video/mp4' : 'image/gif',
+          messageType: 'gif',
+          replyToId: replyingTo?.id || null,
+        }),
+      });
+      setReplyingTo(null);
+    } catch (error) {
+      console.error('Failed to send gif:', error);
+    }
   };
 
   // Get other user for private call
@@ -420,17 +464,74 @@ export default function ChatView({
                       </div>
                     )}
 
-                    {/* Smart Media Preview */}
+                    {/* Render file if present */}
                     {msg.fileUrl && (() => {
                       const fileUrl = msg.fileUrl;
-                      const fileName = msg.fileName || fileUrl.split('/').pop() || 'file'; // Use original name or fallback
                       const mimeType = msg.mimeType || '';
+                      const msgType = msg.messageType || 'file';
                       
-                      // Determine file type from MIME type (preferred) or extension (fallback)
-                      const isImage = mimeType.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileUrl);
-                      const isGif = mimeType === 'image/gif' || /\.gif$/i.test(fileUrl);
-                      const isAudio = mimeType.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(fileUrl);
-                      const isVideo = mimeType.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/i.test(fileUrl);
+                      // Sticker rendering
+                      if (msgType === 'sticker') {
+                        return (
+                          <div style={{ marginBottom: msg.text ? 8 : 0 }}>
+                            <img
+                              src={fileUrl}
+                              alt="Sticker"
+                              style={{
+                                width: 150,
+                                height: 150,
+                                objectFit: 'contain',
+                                borderRadius: 8,
+                                display: 'block',
+                              }}
+                            />
+                          </div>
+                        );
+                      }
+                      
+                      // GIF rendering
+                      if (msgType === 'gif') {
+                        return (
+                          <div style={{ marginBottom: msg.text ? 8 : 0 }}>
+                            {mimeType === 'video/mp4' ? (
+                              <video
+                                src={fileUrl}
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                                style={{
+                                  width: 200,
+                                  height: 200,
+                                  objectFit: 'contain',
+                                  borderRadius: 8,
+                                  display: 'block',
+                                }}
+                              />
+                            ) : (
+                              <img
+                                src={fileUrl}
+                                alt="GIF"
+                                style={{
+                                  width: 200,
+                                  height: 200,
+                                  objectFit: 'contain',
+                                  borderRadius: 8,
+                                  display: 'block',
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      }
+                      
+                      // Regular file detection (images, audio, video, etc.)
+                      const fileExtension = fileUrl.split('.').pop()?.toLowerCase() || '';
+                      const detectedMime = mimeType || '';
+                      const isImage = detectedMime.startsWith('image/') && !detectedMime.includes('gif');
+                      const isVideo = detectedMime.startsWith('video/') && !detectedMime.includes('gif');
+                      const isAudio = detectedMime.startsWith('audio/');
+                      const fileName = msg.fileName || fileUrl.split('/').pop() || 'file';
                       
                       if (isImage) {
                         return (
@@ -460,7 +561,7 @@ export default function ChatView({
                               }}
                             />
                             <div style={{ fontSize: 11, color: isOwn ? 'rgba(255,255,255,0.7)' : 'var(--fg-muted)', marginTop: 4 }}>
-                              {isGif ? '🎬 GIF' : '🖼️ Image'} • Click to view
+                              🖼️ Image • Click to view
                             </div>
                           </div>
                         );
@@ -701,6 +802,29 @@ export default function ChatView({
           >
             {uploading ? <div className="spinner" style={{ width: 18, height: 18 }} /> : '📎'}
           </button>
+
+          {/* Emoji/Sticker/GIF Picker Button */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              onClick={() => setShowPicker(!showPicker)}
+              title="Emoji / Sticker / GIF"
+            >
+              😊
+            </button>
+            
+            {showPicker && (
+              <EmojiStickerPicker
+                onEmojiSelect={handleEmojiSelect}
+                onStickerSelect={handleStickerSelect}
+                onGifSelect={handleGifSelect}
+                onClose={() => setShowPicker(false)}
+                dir={dir}
+                t={t}
+              />
+            )}
+          </div>
 
           {/* Text input */}
           <input
