@@ -22,6 +22,8 @@ model User {
   rooms         RoomMember[]
   callsMade     CallLog[] @relation("Caller")
   callsReceived CallLog[] @relation("Callee")
+  stickers      Sticker[]
+  gifs          Gif[]
 }
 
 model Room {
@@ -52,7 +54,36 @@ model VoiceCall {
 model Settings {
   id                    String   @id @default("default")
   registrationEnabled   Boolean  @default(true)
-  updatedAt             DateTime @updatedAt @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Sticker {
+  id          String   @id @default(uuid())
+  fileUrl     String
+  fileName    String
+  fileSize    Int
+  uploadedBy  String
+  uploadedAt  DateTime @default(now())
+  
+  uploader    User     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  
+  @@index([uploadedBy])
+  @@index([uploadedAt])
+}
+
+model Gif {
+  id          String   @id @default(uuid())
+  fileUrl     String
+  fileName    String
+  fileSize    Int
+  format      String   // 'mp4' or 'gif'
+  uploadedBy  String
+  uploadedAt  DateTime @default(now())
+  
+  uploader    User     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  
+  @@index([uploadedBy])
+  @@index([uploadedAt])
 }
 
 model RoomMember {
@@ -67,21 +98,22 @@ model RoomMember {
 }
 
 model Message {
-  id        String   @id @default(uuid())
-  text      String?
-  fileUrl   String?
-  fileName  String?  // Original filename for display/download
-  fileSize  Int?
-  mimeType  String?  // MIME type of the file (e.g., image/png, video/mp4)
-  userId    String
-  roomId    String
-  replyToId String?  // ID of message being replied to
-  createdAt DateTime @default(now())
-  readBy    String   @default("")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  replyTo   Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies   Message[] @relation("MessageReplies")
+  id          String   @id @default(uuid())
+  text        String?
+  fileUrl     String?
+  fileName    String?  // Original filename for display/download
+  fileSize    Int?
+  mimeType    String?  // MIME type of the file (e.g., image/png, video/mp4)
+  messageType String   @default("text") // 'text', 'file', 'sticker', 'gif'
+  userId      String
+  roomId      String
+  replyToId   String?  // ID of message being replied to
+  createdAt   DateTime @default(now())
+  readBy      String   @default("")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  replyTo     Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     Message[] @relation("MessageReplies")
 
   @@index([roomId])
   @@index([userId])

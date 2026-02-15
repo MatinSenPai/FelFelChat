@@ -88,9 +88,21 @@ export async function POST(
       return NextResponse.json({ error: 'Only superadmin can post in channels' }, { status: 403 });
     }
 
-    const { text, fileUrl, fileName, fileSize, mimeType, replyToId } = await req.json();
+    const { text, fileUrl, fileName, fileSize, mimeType, messageType, replyToId } = await req.json();
 
-    if (!text && !fileUrl) {
+    // Validate message based on type
+    const validMessageTypes = ['text', 'file', 'sticker', 'gif'];
+    const msgType = messageType || 'text';
+    
+    if (!validMessageTypes.includes(msgType)) {
+      return NextResponse.json({ error: 'Invalid message type' }, { status: 400 });
+    }
+    
+    if (msgType === 'sticker' || msgType === 'gif') {
+      if (!fileUrl) {
+        return NextResponse.json({ error: 'Sticker/GIF requires fileUrl' }, { status: 400 });
+      }
+    } else if (!text && !fileUrl) {
       return NextResponse.json({ error: 'Message cannot be empty' }, { status: 400 });
     }
 
@@ -116,6 +128,7 @@ export async function POST(
         fileName: fileName || null,
         fileSize: fileSize || null,
         mimeType: mimeType || null,
+        messageType: msgType,
         userId: user.id,
         roomId,
         replyToId: replyToId || null,
