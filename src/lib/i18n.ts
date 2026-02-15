@@ -29,6 +29,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'auth.loginSubtitle': 'وارد حساب کاربریت شو',
     'auth.usernamePlaceholder': 'نام کاربری خودت رو وارد کن',
     'auth.passwordPlaceholder': 'رمز عبور خودت رو وارد کن',
+    'auth.displayNamePlaceholder': 'نام نمایشی خودت',
+    'auth.confirmPasswordPlaceholder': 'رمز عبور رو تکرار کن',
+    'auth.registrationDisabled': 'ثبت‌نام غیرفعاله',
+    'auth.registrationDisabledTitle': 'ثبت‌نام بسته است',
+    'auth.registrationDisabledMessage': 'ثبت‌نام کاربران جدید در حال حاضر غیرفعال است. لطفاً با مدیر تماس بگیرید.',
+    'auth.backToLogin': 'بازگشت به ورود',
 
     // Chat
     'chat.rooms': 'گفتگوها',
@@ -105,6 +111,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'admin.noActiveCall': 'تماس فعالی نیست',
     'admin.callHistory': 'تاریخچه تماس‌ها',
     'admin.activeCall': 'تماس فعال',
+    'admin.generalSettings': 'تنظیمات عمومی',
+    'admin.registration': 'ثبت‌نام کاربران',
+    'admin.registrationEnabled': 'کاربران جدید می‌توانند ثبت‌نام کنند',
+    'admin.registrationDisabled': 'ثبت‌نام بسته است',
+    'admin.enable': 'فعال',
+    'admin.disable': 'غیرفعال',
 
     // Backup
     'backup.create': 'ایجاد بکاپ',
@@ -172,6 +184,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'auth.loginSubtitle': 'Login to your account',
     'auth.usernamePlaceholder': 'Enter your username',
     'auth.passwordPlaceholder': 'Enter your password',
+    'auth.displayNamePlaceholder': 'Your display name',
+    'auth.confirmPasswordPlaceholder': 'Confirm your password',
+    'auth.registrationDisabled': 'Registration is disabled',
+    'auth.registrationDisabledTitle': 'Registration Closed',
+    'auth.registrationDisabledMessage': 'New user registration is currently disabled. Please contact the administrator.',
+    'auth.backToLogin': 'Back to Login',
 
     // Chat
     'chat.rooms': 'Chats',
@@ -248,6 +266,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'admin.noActiveCall': 'No active call',
     'admin.callHistory': 'Call History',
     'admin.activeCall': 'Active Call',
+    'admin.generalSettings': 'General Settings',
+    'admin.registration': 'User Registration',
+    'admin.registrationEnabled': 'New users can sign up',
+    'admin.registrationDisabled': 'Registration is closed',
+    'admin.enable': 'Enable',
+    'admin.disable': 'Disable',
 
     // Backup
     'backup.create': 'Create Backup',

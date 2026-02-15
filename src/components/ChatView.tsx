@@ -304,7 +304,9 @@ export default function ChatView({
           messages.map((msg, idx) => {
               const isOwn = msg.userId === user.id;
               const prevMsg = messages[idx - 1];
-              const showAvatar = !prevMsg || prevMsg.userId !== msg.userId;
+              const nextMsg = messages[idx + 1];
+              const showAvatar = !nextMsg || nextMsg.userId !== msg.userId;
+              const isFirstInGroup = !prevMsg || prevMsg.userId !== msg.userId;
 
               return (
                 <div
@@ -314,7 +316,7 @@ export default function ChatView({
                     flexDirection: isOwn ? (dir === 'rtl' ? 'row' : 'row-reverse') : (dir === 'rtl' ? 'row-reverse' : 'row'),
                   alignItems: 'flex-end',
                   gap: 8,
-                  marginTop: showAvatar ? 12 : 2,
+                  marginTop: isFirstInGroup ? 12 : 2,
                   animation: 'fadeIn 0.2s ease',
                 }}
               >
