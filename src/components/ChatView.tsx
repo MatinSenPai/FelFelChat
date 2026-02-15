@@ -194,6 +194,7 @@ export default function ChatView({
           body: JSON.stringify({
             fileUrl: uploadData.fileUrl,
             fileSize: uploadData.fileSize,
+            mimeType, // Send MIME type to server
             text: `📎 ${uploadData.fileName}`,
           }),
         });
@@ -595,7 +596,6 @@ export default function ChatView({
                   >
                     ↩ {t('chat.reply')}
                   </button>
-                </div>
                 </div>
               </div>
             );
