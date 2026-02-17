@@ -9,7 +9,7 @@ set -euo pipefail
 #   felfel
 
 APP_NAME="FelFel Chat"
-SCRIPT_VERSION="2026.02.18-2"
+SCRIPT_VERSION="2026.02.18-3"
 DEFAULT_SERVICE_NAME="felfelchat"
 DEFAULT_REPO="${GITHUB_REPO:-MatinSenPai/FelFelChat}"
 DEFAULT_REF="${GITHUB_REF:-main}"
@@ -78,7 +78,7 @@ prompt_with_default() {
     read -r -p "${label} [${default_value}]: " answer
     echo "${answer:-$default_value}"
   else
-    log "${label}: using default '${default_value}' (non-interactive mode)"
+    printf "%b[FelFel]%b %s\n" "$COLOR_CYAN" "$COLOR_RESET" "${label}: using default '${default_value}' (non-interactive mode)" >&2
     echo "$default_value"
   fi
 }
