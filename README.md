@@ -55,6 +55,13 @@ Installer behavior:
 - install/start `systemd` service when available (or fallback `nohup`)
 - install global `felfel` command
 
+If your server cannot reach GitHub directly, you can set mirror URLs:
+```bash
+FELFEL_REPO_URL="https://<your-git-mirror>/<owner>/<repo>.git" \
+FELFEL_TARBALL_URL="https://<your-mirror>/<owner>/<repo>/archive/main.tar.gz" \
+curl -fsSL "https://raw.githubusercontent.com/MatinSenPai/FelFelChat/main/install.sh?t=$(date +%s)" | FELFEL_AUTO=1 bash
+```
+
 After install:
 
 ```bash

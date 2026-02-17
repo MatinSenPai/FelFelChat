@@ -9,7 +9,7 @@ set -euo pipefail
 #   felfel
 
 APP_NAME="FelFel Chat"
-SCRIPT_VERSION="2026.02.18-3"
+SCRIPT_VERSION="2026.02.18-4"
 DEFAULT_SERVICE_NAME="felfelchat"
 DEFAULT_REPO="${GITHUB_REPO:-MatinSenPai/FelFelChat}"
 DEFAULT_REF="${GITHUB_REF:-main}"
@@ -99,15 +99,30 @@ as_root() {
 run_pipe_to_root_bash() {
   local script_url="$1"
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    curl -fsSL "$script_url" | bash -
+    curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 "$script_url" | bash -
     return
   fi
   if command -v sudo >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo -E bash -
+    curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 "$script_url" | sudo -E bash -
     return
   fi
   err "Root access is required to run bootstrap script: $script_url"
   exit 1
+}
+
+run_with_retries() {
+  local attempts="$1"
+  shift
+  local i=1
+  while (( i <= attempts )); do
+    if "$@"; then
+      return 0
+    fi
+    warn "Attempt ${i}/${attempts} failed: $*"
+    sleep $((i * 2))
+    i=$((i + 1))
+  done
+  return 1
 }
 
 detect_pkg_manager() {
@@ -163,6 +178,15 @@ ensure_base_tools() {
     case "$mgr" in
       apt|dnf|yum|apk|pacman) pkg_install "$mgr" openssl ;;
       *) warn "openssl not found; fallback random generator will be used." ;;
+    esac
+  fi
+
+  # Ensure CA bundle exists for TLS endpoints (GitHub/registry).
+  if [[ ! -f "/etc/ssl/certs/ca-certificates.crt" ]] && [[ ! -f "/etc/pki/tls/certs/ca-bundle.crt" ]]; then
+    log "Installing CA certificates..."
+    case "$mgr" in
+      apt|dnf|yum|apk|pacman) pkg_install "$mgr" ca-certificates ;;
+      *) warn "CA certificate bundle not found; TLS operations may fail." ;;
     esac
   fi
 }
@@ -378,15 +402,58 @@ is_running_fallback() {
 clone_or_update_repo() {
   ensure_base_tools
   local repo="$1" ref="$2"
+  local primary_url fallback_url tar_url
+  primary_url="${FELFEL_REPO_URL:-https://github.com/${repo}.git}"
+  fallback_url="https://ghproxy.com/https://github.com/${repo}.git"
+  tar_url="${FELFEL_TARBALL_URL:-https://codeload.github.com/${repo}/tar.gz/refs/heads/${ref}}"
   mkdir -p "$(dirname "$APP_DIR")"
+
+  export GIT_HTTP_VERSION=HTTP/1.1
+  export GIT_HTTP_LOW_SPEED_LIMIT=1000
+  export GIT_HTTP_LOW_SPEED_TIME=30
+
   if [[ -d "$APP_DIR/.git" ]]; then
     log "Updating existing repository..."
-    git -C "$APP_DIR" fetch --all --tags
-    git -C "$APP_DIR" checkout "$ref"
-    git -C "$APP_DIR" pull --ff-only
+    run_with_retries 3 git -C "$APP_DIR" fetch --all --tags || {
+      warn "Primary fetch failed. Trying remote fallback mirror..."
+      git -C "$APP_DIR" remote set-url origin "$fallback_url" || true
+      run_with_retries 3 git -C "$APP_DIR" fetch --all --tags || {
+        err "Could not update repository from network."
+        exit 1
+      }
+    }
+    git -C "$APP_DIR" checkout "$ref" || true
+    run_with_retries 3 git -C "$APP_DIR" pull --ff-only || true
   else
-    log "Cloning repository..."
-    git clone --branch "$ref" --depth 1 "https://github.com/${repo}.git" "$APP_DIR"
+    log "Downloading source snapshot..."
+    rm -rf "$APP_DIR"
+    mkdir -p "$APP_DIR"
+    if run_with_retries 3 curl -4 -fL --retry 3 --retry-delay 2 --connect-timeout 20 "$tar_url" -o /tmp/felfel-src.tgz; then
+      tar -xzf /tmp/felfel-src.tgz --strip-components=1 -C "$APP_DIR"
+      rm -f /tmp/felfel-src.tgz
+      ok "Source downloaded from tarball"
+      return
+    fi
+    warn "Tarball download failed. Trying git clone..."
+    if run_with_retries 3 git clone --config http.version=HTTP/1.1 --branch "$ref" --depth 1 "$primary_url" "$APP_DIR"; then
+      return
+    fi
+    warn "Primary clone failed. Trying mirror clone..."
+    if run_with_retries 3 git clone --config http.version=HTTP/1.1 --branch "$ref" --depth 1 "$fallback_url" "$APP_DIR"; then
+      return
+    fi
+    warn "Mirror clone failed. Trying mirror tarball fallback..."
+    rm -rf "$APP_DIR"
+    mkdir -p "$APP_DIR"
+    if run_with_retries 3 curl -4 -fL --retry 3 --retry-delay 2 --connect-timeout 20 "https://ghproxy.com/${tar_url}" -o /tmp/felfel-src.tgz; then
+      tar -xzf /tmp/felfel-src.tgz --strip-components=1 -C "$APP_DIR"
+      rm -f /tmp/felfel-src.tgz
+      ok "Source downloaded from mirror tarball fallback"
+      return
+    fi
+    err "Unable to download source code from GitHub/mirror/tarball."
+    err "Set FELFEL_REPO_URL to a reachable git mirror and retry."
+    exit 1
   fi
 }
 
