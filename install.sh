@@ -9,7 +9,7 @@ set -euo pipefail
 #   felfel
 
 APP_NAME="FelFel Chat"
-SCRIPT_VERSION="2026.02.18-5"
+SCRIPT_VERSION="2026.02.18-6"
 DEFAULT_SERVICE_NAME="felfelchat"
 DEFAULT_REPO="${GITHUB_REPO:-MatinSenPai/FelFelChat}"
 DEFAULT_REF="${GITHUB_REF:-main}"
@@ -219,9 +219,20 @@ ensure_node_toolchain() {
   case "$mgr" in
     apt)
       pkg_install "$mgr" ca-certificates gnupg
+      # Ubuntu/Debian often has legacy Node 12 split packages that conflict with NodeSource nodejs.
+      as_root env DEBIAN_FRONTEND=noninteractive apt-get remove -y libnode-dev nodejs-doc >/dev/null 2>&1 || true
+      as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y libnode-dev nodejs-doc >/dev/null 2>&1 || true
+      as_root env DEBIAN_FRONTEND=noninteractive apt-get -f install -y >/dev/null 2>&1 || true
       log "Using NodeSource Node.js 20 for apt..."
       run_pipe_to_root_bash "https://deb.nodesource.com/setup_20.x"
-      pkg_install "$mgr" nodejs
+      pkg_install "$mgr" nodejs || {
+        warn "First Node.js install attempt failed; trying apt repair and retry..."
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get -f install -y || true
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get remove -y libnode-dev nodejs-doc || true
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y libnode-dev nodejs-doc || true
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get -f install -y || true
+        pkg_install "$mgr" nodejs
+      }
       ;;
     dnf|yum)
       log "Using NodeSource Node.js 20 for rpm..."
