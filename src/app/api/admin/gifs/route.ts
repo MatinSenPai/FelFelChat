@@ -3,10 +3,15 @@ import { prisma } from '@/lib/prisma';
 import { writeFile, unlink } from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
+import { requireSuperAdmin } from '@/lib/routeAuth';
+import { logAdminAction } from '@/lib/auditLog';
 
 // GET /api/admin/gifs - Fetch all GIFs
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const gifs = await prisma.gif.findMany({
       orderBy: { uploadedAt: 'desc' },
       include: {
@@ -29,9 +34,11 @@ export async function GET() {
 // POST /api/admin/gifs - Upload new GIF
 export async function POST(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
-    const userId = formData.get('userId') as string;
 
     if (!file) {
       return NextResponse.json({ error: 'noFile' }, { status: 400 });
@@ -72,8 +79,16 @@ export async function POST(req: NextRequest) {
         fileName: file.name,
         fileSize: file.size,
         format: file.type === 'video/mp4' ? 'mp4' : 'gif',
-        uploadedBy: userId,
+        uploadedBy: auth.user.id,
       },
+    });
+
+    await logAdminAction(req, {
+      adminUserId: auth.user.id,
+      action: 'admin.gifs.upload',
+      targetType: 'gif',
+      targetId: gif.id,
+      details: { fileName: file.name, fileSize: file.size, format: gif.format },
     });
 
     return NextResponse.json({ gif });
@@ -86,6 +101,9 @@ export async function POST(req: NextRequest) {
 // DELETE /api/admin/gifs - Delete GIF
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const { id } = await req.json();
 
     if (!id) {
@@ -110,6 +128,13 @@ export async function DELETE(req: NextRequest) {
     // Delete from database
     await prisma.gif.delete({
       where: { id },
+    });
+
+    await logAdminAction(req, {
+      adminUserId: auth.user.id,
+      action: 'admin.gifs.delete',
+      targetType: 'gif',
+      targetId: id,
     });
 
     return NextResponse.json({ success: true });

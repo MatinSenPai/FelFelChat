@@ -1,12 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '@/components/providers/AuthProvider';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
 
 export default function LoginPage() {
-  const { login } = useAuth();
   const { t, locale, setLocale, dir } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');

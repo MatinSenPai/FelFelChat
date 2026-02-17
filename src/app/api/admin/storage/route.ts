@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { unlinkSync, existsSync, readdirSync, statSync } from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
+import { requireSuperAdmin } from '@/lib/routeAuth';
+import { logAdminAction } from '@/lib/auditLog';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -13,8 +15,11 @@ function formatBytes(bytes: number): string {
 }
 
 // GET — storage stats
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const dbPath = path.resolve(process.cwd(), 'prisma/dev.db');
     const uploadsDir = process.env.UPLOAD_DIR || './uploads';
     const backupsDir = process.env.BACKUP_DIR || './backups';
@@ -82,8 +87,10 @@ export async function GET() {
 // POST — cleanup actions
 export async function POST(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const { action, params } = await req.json();
-    const uploadsDir = process.env.UPLOAD_DIR || './uploads';
 
     switch (action) {
       case 'delete-old-messages': {
@@ -103,6 +110,12 @@ export async function POST(req: NextRequest) {
         }
 
         const result = await prisma.message.deleteMany({ where: { createdAt: { lt: cutoff } } });
+        await logAdminAction(req, {
+          adminUserId: auth.user.id,
+          action: 'admin.storage.delete-old-messages',
+          targetType: 'message',
+          details: { days, deleted: result.count },
+        });
         return NextResponse.json({ deleted: result.count });
       }
 
@@ -122,11 +135,24 @@ export async function POST(req: NextRequest) {
         }
 
         const result = await prisma.message.deleteMany({ where: { roomId } });
+        await logAdminAction(req, {
+          adminUserId: auth.user.id,
+          action: 'admin.storage.delete-room-content',
+          targetType: 'room',
+          targetId: roomId,
+          details: { deleted: result.count },
+        });
         return NextResponse.json({ deleted: result.count });
       }
 
       case 'vacuum': {
         await prisma.$executeRawUnsafe('VACUUM');
+        await logAdminAction(req, {
+          adminUserId: auth.user.id,
+          action: 'admin.storage.vacuum',
+          targetType: 'database',
+          targetId: 'main',
+        });
         return NextResponse.json({ success: true });
       }
 

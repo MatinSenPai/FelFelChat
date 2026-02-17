@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 
 interface EmojiStickerPickerProps {
   onEmojiSelect: (emoji: string) => void;
@@ -110,20 +111,6 @@ export default function EmojiStickerPicker({
   const [loadingStickers, setLoadingStickers] = useState(false);
   const [loadingGifs, setLoadingGifs] = useState(false);
 
-  // Lazy load stickers when tab is clicked
-  useEffect(() => {
-    if (activeTab === 'stickers' && stickers.length === 0) {
-      fetchStickers();
-    }
-  }, [activeTab]);
-
-  // Lazy load gifs when tab is clicked
-  useEffect(() => {
-    if (activeTab === 'gifs' && gifs.length === 0) {
-      fetchGifs();
-    }
-  }, [activeTab]);
-
   const fetchStickers = async () => {
     setLoadingStickers(true);
     try {
@@ -151,6 +138,26 @@ export default function EmojiStickerPicker({
     }
     setLoadingGifs(false);
   };
+
+  // Lazy load stickers when tab is clicked
+  useEffect(() => {
+    if (activeTab === 'stickers' && stickers.length === 0) {
+      const timer = setTimeout(() => {
+        void fetchStickers();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, stickers.length]);
+
+  // Lazy load gifs when tab is clicked
+  useEffect(() => {
+    if (activeTab === 'gifs' && gifs.length === 0) {
+      const timer = setTimeout(() => {
+        void fetchGifs();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, gifs.length]);
 
   return (
     <div
@@ -272,9 +279,12 @@ export default function EmojiStickerPicker({
                     onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.05)')}
                     onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
                   >
-                    <img
+                    <Image
                       src={sticker.fileUrl}
                       alt={sticker.fileName}
+                      width={80}
+                      height={80}
+                      unoptimized
                       style={{
                         width: '100%',
                         height: '100%',
@@ -343,9 +353,12 @@ export default function EmojiStickerPicker({
                         }}
                       />
                     ) : (
-                      <img
+                      <Image
                         src={gif.fileUrl}
                         alt={gif.fileName}
+                        width={80}
+                        height={80}
+                        unoptimized
                         style={{
                           width: '100%',
                           height: '100%',

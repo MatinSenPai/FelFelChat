@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 
 interface User {
   id: string;
@@ -86,9 +87,12 @@ export default function UserProfileModal({ userId, onClose, onStartChat }: UserP
                 }}
               >
                 {profile.avatarUrl ? (
-                  <img
+                  <Image
                     src={profile.avatarUrl}
                     alt="Avatar"
+                    width={100}
+                    height={100}
+                    unoptimized
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
                 ) : (

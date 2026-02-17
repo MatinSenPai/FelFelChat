@@ -2,6 +2,21 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { I18nProvider } from "@/components/providers/I18nProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { Inter, Vazirmatn } from "next/font/google";
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const vazirmatn = Vazirmatn({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-vazirmatn",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "FelFel Chat! | فلفل چت",
@@ -15,15 +30,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fa" dir="rtl" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link 
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Vazirmatn:wght@400;500;600;700&display=swap" 
-          rel="stylesheet" 
-        />
-      </head>
-      <body style={{ fontFamily: "'Vazirmatn', 'Inter', sans-serif" }}>
+      <body
+        className={`${vazirmatn.variable} ${inter.variable}`}
+        style={{ fontFamily: "var(--font-vazirmatn), var(--font-inter), sans-serif" }}
+      >
         <I18nProvider>
           <AuthProvider>
             {children}

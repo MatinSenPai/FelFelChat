@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 
-export async function proxy(request: NextRequest, context: any) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow static files, API routes, and uploads
@@ -18,7 +18,13 @@ export async function proxy(request: NextRequest, context: any) {
   }
 
   // Allow public sticker and GIF API routes
-  if (pathname === '/api/stickers' || pathname === '/api/gifs') {
+  if (
+    pathname === '/api/stickers' ||
+    pathname === '/api/gifs' ||
+    pathname === '/api/settings/public' ||
+    pathname === '/api/health' ||
+    pathname === '/api/ready'
+  ) {
     return null;
   }
 

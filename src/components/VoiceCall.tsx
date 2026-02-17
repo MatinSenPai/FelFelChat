@@ -27,12 +27,19 @@ export default function VoiceCall({
 
   // Timer for active calls
   useEffect(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
     if (status === 'active') {
-      setDuration(0);
+      let elapsed = 0;
       intervalRef.current = setInterval(() => {
-        setDuration((d) => d + 1);
+        elapsed += 1;
+        setDuration(elapsed);
       }, 1000);
     }
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };

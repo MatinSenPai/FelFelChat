@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
+import { logError } from '@/lib/logger';
+import { captureServerException } from '@/lib/monitoring';
 
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get('token')?.value;
-    console.log('[/api/auth/me] Cookie received:', token ? 'YES' : 'NO', 'All cookies:', req.cookies.getAll().map(c => c.name));
     if (!token) {
       return NextResponse.json({ user: null }, { status: 401 });
     }
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
         avatarUrl: true,
         bio: true,
         isSuperAdmin: true,
+        isBanned: true,
       },
     });
 
@@ -32,7 +34,9 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ user });
-  } catch {
+  } catch (error) {
+    logError('api.auth.me.error', { error: String(error) });
+    captureServerException(error, { route: '/api/auth/me' });
     return NextResponse.json({ user: null }, { status: 401 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/routeAuth';
 
 // GET /api/rooms/:roomId/members - Fetch all members of a room
 export async function GET(
@@ -7,10 +8,20 @@ export async function GET(
   context: { params: Promise<{ roomId: string }> }
 ) {
   try {
+    const auth = requireAuth(req);
+    if (!auth.ok) return auth.response;
+
     const { roomId } = await context.params;
 
     if (!roomId) {
       return NextResponse.json({ error: 'missingRoomId' }, { status: 400 });
+    }
+
+    const isMember = await prisma.roomMember.findUnique({
+      where: { userId_roomId: { userId: auth.user.id, roomId } },
+    });
+    if (!isMember && !auth.user.isSuperAdmin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Fetch room with members

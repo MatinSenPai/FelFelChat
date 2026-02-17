@@ -1,5 +1,7 @@
 'use client';
 
+import Image from 'next/image';
+
 interface ImagePreviewModalProps {
   imageUrl: string;
   onClose: () => void;
@@ -42,9 +44,12 @@ export default function ImagePreviewModal({ imageUrl, onClose }: ImagePreviewMod
           maxHeight: '95vh',
         }}
       >
-        <img
+        <Image
           src={imageUrl}
           alt="Preview"
+          width={1200}
+          height={900}
+          unoptimized
           style={{
             maxWidth: '90vw',
             maxHeight: '80vh',

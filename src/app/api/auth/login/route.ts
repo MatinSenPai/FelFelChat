@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { signToken } from '@/lib/jwt';
+import { enforceRateLimit } from '@/lib/rateLimit';
+import { logError, logInfo } from '@/lib/logger';
+import { captureServerException } from '@/lib/monitoring';
 
 export async function POST(req: NextRequest) {
   try {
+    const rateLimited = enforceRateLimit(req, 'auth-login', {
+      windowMs: 15 * 60 * 1000,
+      max: 20,
+    });
+    if (rateLimited) return rateLimited;
+
     let username: string | null = null;
     let password: string | null = null;
 
@@ -52,7 +61,7 @@ export async function POST(req: NextRequest) {
       isSuperAdmin: user.isSuperAdmin,
     });
 
-    console.log('[/api/auth/login] NODE_ENV:', process.env.NODE_ENV);
+    logInfo('api.auth.login.success', { username: user.username });
 
     const response = NextResponse.json({
       user: {
@@ -65,17 +74,16 @@ export async function POST(req: NextRequest) {
 
     response.cookies.set('token', token, {
       httpOnly: true,
-      secure: false, // Force false for debugging
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7,
       path: '/',
     });
 
-    console.log('[/api/auth/login] Cookie set for user:', user.username);
-
     return response;
   } catch (error) {
-    console.error('Login error:', error);
+    logError('api.auth.login.error', { error: String(error) });
+    captureServerException(error, { route: '/api/auth/login' });
     return NextResponse.json({ error: 'serverError' }, { status: 500 });
   }
 }

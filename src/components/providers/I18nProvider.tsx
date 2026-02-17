@@ -18,7 +18,11 @@ const I18nContext = createContext<I18nContextValue>({
 });
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(defaultLocale);
+  const [locale, setLocaleState] = useState<Locale>(() => {
+    if (typeof window === 'undefined') return defaultLocale;
+    const saved = localStorage.getItem('felfel-locale');
+    return saved === 'fa' || saved === 'en' ? saved : defaultLocale;
+  });
 
   const setLocale = useCallback((newLocale: Locale) => {
     setLocaleState(newLocale);
@@ -35,14 +39,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const dir = getDirection(locale);
 
   useEffect(() => {
-    const saved = localStorage.getItem('felfel-locale') as Locale | null;
-    if (saved && (saved === 'fa' || saved === 'en')) {
-      setLocale(saved);
-    } else {
-      document.documentElement.dir = dir;
-      document.documentElement.lang = locale;
-    }
-  }, []);
+    document.documentElement.dir = dir;
+    document.documentElement.lang = locale;
+  }, [dir, locale]);
 
   return (
     <I18nContext.Provider value={{ locale, setLocale, t, dir }}>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useI18n } from '@/components/providers/I18nProvider';
 import { compressAvatar } from '@/lib/imageCompression';
+import Image from 'next/image';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -21,8 +22,8 @@ export default function ProfilePage() {
   useEffect(() => {
     if (user) {
       setDisplayName(user.displayName || '');
-      setBio((user as any).bio || '');
-      setAvatarUrl((user as any).avatarUrl || '');
+      setBio(user.bio || '');
+      setAvatarUrl(user.avatarUrl || '');
     }
   }, [user]);
 
@@ -109,7 +110,14 @@ export default function ProfilePage() {
               }}
             >
               {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <Image
+                  src={avatarUrl}
+                  alt="Avatar"
+                  width={120}
+                  height={120}
+                  unoptimized
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
               ) : (
                 (displayName || user.username).charAt(0).toUpperCase()
               )}

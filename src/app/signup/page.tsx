@@ -19,11 +19,11 @@ export default function SignupPage() {
 
   useEffect(() => {
     // Check if registration is enabled
-    fetch('/api/admin/settings')
+    fetch('/api/settings/public')
       .then((r) => r.json())
       .then((data) => {
-        if (data.settings) {
-          setRegistrationEnabled(data.settings.registrationEnabled);
+        if (typeof data.registrationEnabled === 'boolean') {
+          setRegistrationEnabled(data.registrationEnabled);
         }
         setCheckingSettings(false);
       })

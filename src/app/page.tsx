@@ -94,9 +94,12 @@ export default function ChatPage() {
       setCallState({ status: 'idle' });
     });
 
-    fetchRooms();
+    const initialFetchTimer = setTimeout(() => {
+      void fetchRooms();
+    }, 0);
 
     return () => {
+      clearTimeout(initialFetchTimer);
       disconnectSocket();
     };
   }, [user, fetchRooms]);

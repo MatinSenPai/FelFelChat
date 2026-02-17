@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
 interface Member {
@@ -33,12 +33,7 @@ export default function RoomMembersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchMembers();
-    fetchAllUsers();
-  }, [roomId]);
-
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/rooms/${roomId}/members`);
       const data = await res.json();
@@ -48,9 +43,9 @@ export default function RoomMembersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [roomId]);
 
-  const fetchAllUsers = async () => {
+  const fetchAllUsers = useCallback(async () => {
     try {
       const res = await fetch('/api/users?search=');
       const data = await res.json();
@@ -58,7 +53,12 @@ export default function RoomMembersPage() {
     } catch (err) {
       console.error('Failed to fetch users:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchMembers();
+    void fetchAllUsers();
+  }, [fetchMembers, fetchAllUsers]);
 
   const handleAddMember = async (userId: string) => {
     setSubmitting(true);

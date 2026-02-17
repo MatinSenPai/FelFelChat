@@ -7,6 +7,7 @@ import UserProfileModal from './UserProfileModal';
 import GroupMembersModal from './GroupMembersModal';
 import EmojiStickerPicker from './EmojiStickerPicker';
 import { compressImage } from '@/lib/imageCompression';
+import Image from 'next/image';
 
 interface User {
   id: string;
@@ -94,16 +95,26 @@ export default function ChatView({
 
   // Fetch messages
   useEffect(() => {
-    setLoading(true);
-    setMessages([]);
+    const loadMessages = async () => {
+      setLoading(true);
+      setMessages([]);
 
-    fetch(`/api/messages/${room.id}`)
-      .then((res) => res.json())
-      .then((data) => {
+      try {
+        const res = await fetch(`/api/messages/${room.id}`);
+        const data = await res.json();
         if (data.messages) setMessages(data.messages);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      void loadMessages();
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [room.id]);
 
   // Socket: listen for new messages in this room
@@ -313,7 +324,7 @@ export default function ChatView({
       });
 
       if (res.ok) {
-        const data = await res.json();
+        await res.json();
         // Refresh page to show new photo
         window.location.reload();
       } else {
@@ -385,9 +396,12 @@ export default function ChatView({
             onClick={() => room.type !== 'PRIVATE' && setShowMembersModal(true)}
           >
             {room.profilePhotoUrl ? (
-              <img
+              <Image
                 src={room.profilePhotoUrl}
                 alt={room.name}
+                width={40}
+                height={40}
+                unoptimized
                 style={{
                   width: 40,
                   height: 40,
@@ -516,9 +530,12 @@ export default function ChatView({
                       }}
                     >
                       {msg.user.avatarUrl ? (
-                        <img
+                        <Image
                           src={msg.user.avatarUrl}
                           alt="Avatar"
+                          width={32}
+                          height={32}
+                          unoptimized
                           style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
                         />
                       ) : (
@@ -612,9 +629,12 @@ export default function ChatView({
                       if (msgType === 'sticker') {
                         return (
                           <div style={{ marginBottom: msg.text ? 8 : 0 }}>
-                            <img
+                            <Image
                               src={fileUrl}
                               alt="Sticker"
+                              width={150}
+                              height={150}
+                              unoptimized
                               style={{
                                 width: 150,
                                 height: 150,
@@ -647,9 +667,12 @@ export default function ChatView({
                                 }}
                               />
                             ) : (
-                              <img
+                              <Image
                                 src={fileUrl}
                                 alt="GIF"
+                                width={200}
+                                height={200}
+                                unoptimized
                                 style={{
                                   width: 200,
                                   height: 200,
@@ -664,7 +687,6 @@ export default function ChatView({
                       }
                       
                       // Regular file detection (images, audio, video, etc.)
-                      const fileExtension = fileUrl.split('.').pop()?.toLowerCase() || '';
                       const detectedMime = mimeType || '';
                       const isImage = detectedMime.startsWith('image/') && !detectedMime.includes('gif');
                       const isVideo = detectedMime.startsWith('video/') && !detectedMime.includes('gif');
@@ -674,9 +696,12 @@ export default function ChatView({
                       if (isImage) {
                         return (
                           <div style={{ marginBottom: msg.text ? 8 : 0 }}>
-                            <img
+                            <Image
                               src={fileUrl}
                               alt={fileName}
+                              width={640}
+                              height={480}
+                              unoptimized
                               onClick={() => setPreviewImage(fileUrl)}
                               style={{
                                 maxWidth: '100%',

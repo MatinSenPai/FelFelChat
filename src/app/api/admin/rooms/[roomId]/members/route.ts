@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
+import { requireSuperAdmin } from '@/lib/routeAuth';
+import { logAdminAction } from '@/lib/auditLog';
 
 // GET /api/admin/rooms/[roomId]/members
 export async function GET(
@@ -8,11 +9,8 @@ export async function GET(
   { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    const token = req.cookies.get('token')?.value;
-    const user = verifyToken(token || '');
-    if (!user?.isSuperAdmin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
 
     const { roomId } = await params;
 
@@ -45,11 +43,8 @@ export async function POST(
   { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    const token = req.cookies.get('token')?.value;
-    const user = verifyToken(token || '');
-    if (!user?.isSuperAdmin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
 
     const { roomId } = await params;
     const { userId } = await req.json();
@@ -83,6 +78,14 @@ export async function POST(
       data: { userId, roomId },
     });
 
+    await logAdminAction(req, {
+      adminUserId: auth.user.id,
+      action: 'admin.roomMembers.add',
+      targetType: 'room',
+      targetId: roomId,
+      details: { userId },
+    });
+
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
     console.error('POST /api/admin/rooms/[roomId]/members error:', error);
@@ -96,11 +99,8 @@ export async function DELETE(
   { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    const token = req.cookies.get('token')?.value;
-    const user = verifyToken(token || '');
-    if (!user?.isSuperAdmin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
 
     const { roomId } = await params;
     const { userId } = await req.json();
@@ -126,6 +126,14 @@ export async function DELETE(
     // Remove member
     await prisma.roomMember.delete({
       where: { userId_roomId: { userId, roomId } },
+    });
+
+    await logAdminAction(req, {
+      adminUserId: auth.user.id,
+      action: 'admin.roomMembers.remove',
+      targetType: 'room',
+      targetId: roomId,
+      details: { userId },
     });
 
     return NextResponse.json({ success: true });

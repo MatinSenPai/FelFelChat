@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 
 interface Member {
   id: string;
@@ -38,24 +39,24 @@ export default function GroupMembersModal({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (isOpen && roomId) {
-      fetchMembers();
-    }
-  }, [isOpen, roomId]);
+    if (!isOpen || !roomId) return;
 
-  const fetchMembers = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/rooms/${roomId}/members`);
-      const data = await res.json();
-      if (data.members) {
-        setMembers(data.members);
+    const fetchMembers = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/members`);
+        const data = await res.json();
+        if (data.members) {
+          setMembers(data.members);
+        }
+      } catch (error) {
+        console.error('Failed to fetch members:', error);
       }
-    } catch (error) {
-      console.error('Failed to fetch members:', error);
-    }
-    setLoading(false);
-  };
+      setLoading(false);
+    };
+
+    fetchMembers();
+  }, [isOpen, roomId]);
 
   if (!isOpen) return null;
 
@@ -147,9 +148,12 @@ export default function GroupMembersModal({
               >
                 {/* Avatar */}
                 {member.user.avatarUrl ? (
-                  <img
+                  <Image
                     src={member.user.avatarUrl}
                     alt={member.user.displayName || member.user.username}
+                    width={48}
+                    height={48}
+                    unoptimized
                     style={{
                       width: 48,
                       height: 48,

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
+import Image from 'next/image';
 
 interface Stats {
   totalUsers: number;
@@ -30,28 +31,6 @@ export default function AdminDashboard() {
   const [uploadingSticker, setUploadingSticker] = useState(false);
   const [uploadingGif, setUploadingGif] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/admin/stats')
-      .then((r) => r.json())
-      .then(setStats)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-      
-    // Fetch settings
-    fetch('/api/admin/settings')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.settings) {
-          setRegistrationEnabled(data.settings.registrationEnabled);
-        }
-      })
-      .catch(console.error);
-    
-    // Fetch stickers and GIFs
-    fetchStickers();
-    fetchGifs();
-  }, []);
-  
   const fetchStickers = async () => {
     setStickersLoading(true);
     try {
@@ -79,6 +58,37 @@ export default function AdminDashboard() {
     }
     setGifsLoading(false);
   };
+
+  useEffect(() => {
+    fetch('/api/admin/stats')
+      .then((r) => r.json())
+      .then(setStats)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+      
+    // Fetch settings
+    fetch('/api/admin/settings')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.settings) {
+          setRegistrationEnabled(data.settings.registrationEnabled);
+        }
+      })
+      .catch(console.error);
+    
+    // Fetch stickers and GIFs
+    const stickersTimer = setTimeout(() => {
+      void fetchStickers();
+    }, 0);
+    const gifsTimer = setTimeout(() => {
+      void fetchGifs();
+    }, 0);
+
+    return () => {
+      clearTimeout(stickersTimer);
+      clearTimeout(gifsTimer);
+    };
+  }, []);
   
   const handleStickerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -376,9 +386,12 @@ export default function AdminDashboard() {
                           justifyContent: 'center',
                         }}
                       >
-                        <img
+                        <Image
                           src={sticker.fileUrl}
                           alt={sticker.fileName}
+                          width={100}
+                          height={100}
+                          unoptimized
                           style={{
                             width: '100%',
                             height: '100%',
@@ -470,9 +483,12 @@ export default function AdminDashboard() {
                             }}
                           />
                         ) : (
-                          <img
+                          <Image
                             src={gif.fileUrl}
                             alt={gif.fileName}
+                            width={100}
+                            height={100}
+                            unoptimized
                             style={{
                               width: '100%',
                               height: '100%',

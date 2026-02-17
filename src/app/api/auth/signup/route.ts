@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { signToken } from '@/lib/jwt';
+import { enforceRateLimit } from '@/lib/rateLimit';
+import { captureServerException } from '@/lib/monitoring';
+import { logError } from '@/lib/logger';
 
 export async function POST(req: NextRequest) {
   try {
+    const rateLimited = enforceRateLimit(req, 'auth-signup', {
+      windowMs: 60 * 60 * 1000,
+      max: 10,
+    });
+    if (rateLimited) return rateLimited;
+
     // Check if registration is enabled
     const settings = await prisma.settings.findUnique({
       where: { id: 'default' },
@@ -66,7 +75,8 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('Signup error:', error);
+    logError('api.auth.signup.error', { error: String(error) });
+    captureServerException(error, { route: '/api/auth/signup' });
     return NextResponse.json({ error: 'serverError' }, { status: 500 });
   }
 }

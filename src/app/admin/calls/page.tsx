@@ -18,20 +18,30 @@ export default function AdminCallsPage() {
   const { t, dir } = useI18n();
   const [activeCall, setActiveCall] = useState<CallInfo | null>(null);
   const [callHistory, setCallHistory] = useState<CallInfo[]>([]);
+  const [activeCallSeconds, setActiveCallSeconds] = useState(0);
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
 
   useEffect(() => {
     const socket = connectSocket();
 
     socket.on('call:started', (call: CallInfo) => {
       setActiveCall(call);
+      setActiveCallSeconds(0);
     });
 
     socket.on('call:updated', (call: CallInfo) => {
       setActiveCall(call);
+      setActiveCallSeconds(0);
     });
 
     socket.on('call:ended', (call: CallInfo) => {
       setActiveCall(null);
+      setActiveCallSeconds(0);
       setCallHistory((prev) => [call, ...prev]);
     });
 
@@ -41,6 +51,14 @@ export default function AdminCallsPage() {
       socket.off('call:ended');
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeCall) return;
+    const timer = setInterval(() => {
+      setActiveCallSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeCall]);
 
   const terminateCall = () => {
     if (activeCall) {
@@ -69,7 +87,7 @@ export default function AdminCallsPage() {
                   </span>
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
-                  {t('call.duration')}: {new Date(Date.now() - new Date(activeCall.startedAt).getTime()).toISOString().substr(14, 5)}
+                  {t('call.duration')}: {formatDuration(activeCallSeconds)}
                 </div>
               </div>
               <button className="btn btn-danger" onClick={terminateCall}>

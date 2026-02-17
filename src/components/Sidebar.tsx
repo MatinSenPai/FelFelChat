@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Locale } from '@/lib/i18n';
+import Image from 'next/image';
 
 interface User {
   id: string;
@@ -81,26 +81,9 @@ export default function Sidebar({
   const [showNewChat, setShowNewChat] = useState(false);
   const [users, setUsers] = useState<{ id: string; username: string; displayName: string | null }[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [showCreateRoom, setShowCreateRoom] = useState(false);
-  const [newRoomName, setNewRoomName] = useState('');
-  const [newRoomType, setNewRoomType] = useState<'GROUP' | 'CHANNEL'>('GROUP');
-
-
   const filteredRooms = rooms.filter((room) =>
     getPrivateRoomName(room).toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const createRoom = async () => {
-    if (!newRoomName.trim()) return;
-    await fetch('/api/rooms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newRoomName, type: newRoomType }),
-    });
-    setNewRoomName('');
-    setShowCreateRoom(false);
-    onRoomsChange();
-  };
 
   const searchUsers = async (query: string) => {
     setLoadingUsers(true);
@@ -272,10 +255,13 @@ export default function Sidebar({
               >
                 <div style={{ position: 'relative' }}>
                   {room.profilePhotoUrl ? (
-                    <img
+                    <Image
                       src={room.profilePhotoUrl}
                       alt={roomName}
                       className="avatar"
+                      width={48}
+                      height={48}
+                      unoptimized
                       style={{ objectFit: 'cover' }}
                     />
                   ) : (
@@ -349,7 +335,14 @@ export default function Sidebar({
             onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
           >
             {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <Image
+                src={user.avatarUrl}
+                alt="Avatar"
+                width={40}
+                height={40}
+                unoptimized
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
             ) : (
               getInitials(user.displayName || user.username)
             )}

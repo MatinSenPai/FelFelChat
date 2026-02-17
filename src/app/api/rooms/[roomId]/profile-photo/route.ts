@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyToken } from '@/lib/jwt';
 import { writeFile, unlink } from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
+import { requireSuperAdmin } from '@/lib/routeAuth';
+import { logAdminAction } from '@/lib/auditLog';
 
 // POST /api/rooms/:roomId/profile-photo - Upload room profile photo (superAdmin only)
 export async function POST(
@@ -13,16 +14,8 @@ export async function POST(
   try {
     const { roomId } = await context.params;
 
-    // Verify superAdmin
-    const token = req.cookies.get('token')?.value;
-    if (!token) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
-
-    const user = verifyToken(token);
-    if (!user || !user.isSuperAdmin) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
 
     // Check room exists and is not PRIVATE
     const room = await prisma.room.findUnique({
@@ -90,6 +83,13 @@ export async function POST(
       },
     });
 
+    await logAdminAction(req, {
+      adminUserId: auth.user.id,
+      action: 'admin.rooms.profile-photo.upload',
+      targetType: 'room',
+      targetId: roomId,
+    });
+
     return NextResponse.json({ room: updatedRoom });
   } catch (error) {
     console.error('Upload room profile photo error:', error);
@@ -105,16 +105,8 @@ export async function DELETE(
   try {
     const { roomId } = await context.params;
 
-    // Verify superAdmin
-    const token = req.cookies.get('token')?.value;
-    if (!token) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
-
-    const user = verifyToken(token);
-    if (!user || !user.isSuperAdmin) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
 
     // Check room exists
     const room = await prisma.room.findUnique({
@@ -141,6 +133,13 @@ export async function DELETE(
       data: {
         profilePhotoUrl: null,
       },
+    });
+
+    await logAdminAction(req, {
+      adminUserId: auth.user.id,
+      action: 'admin.rooms.profile-photo.delete',
+      targetType: 'room',
+      targetId: roomId,
     });
 
     return NextResponse.json({ success: true, room: updatedRoom });

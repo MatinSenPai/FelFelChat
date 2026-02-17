@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireSuperAdmin } from '@/lib/routeAuth';
+import { logAdminAction } from '@/lib/auditLog';
 
 // GET /api/admin/messages — list recent messages
 export async function GET(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const messages = await prisma.message.findMany({
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -23,6 +28,9 @@ export async function GET(req: NextRequest) {
 // POST /api/admin/messages — delete message(s)
 export async function POST(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const { action, messageId, messageIds } = await req.json();
 
     switch (action) {
@@ -39,6 +47,14 @@ export async function POST(req: NextRequest) {
       default:
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
+
+    await logAdminAction(req, {
+      adminUserId: auth.user.id,
+      action: `admin.messages.${action}`,
+      targetType: 'message',
+      targetId: messageId || (Array.isArray(messageIds) ? `${messageIds.length}` : undefined),
+      details: Array.isArray(messageIds) ? { count: messageIds.length } : undefined,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

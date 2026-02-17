@@ -1,8 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { statSync, readdirSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
+import { requireSuperAdmin } from '@/lib/routeAuth';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -29,8 +30,11 @@ function getDirSize(dirPath: string): number {
   return total;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const auth = requireSuperAdmin(req);
+    if (!auth.ok) return auth.response;
+
     const [totalUsers, totalMessages, totalRooms] = await Promise.all([
       prisma.user.count(),
       prisma.message.count(),
