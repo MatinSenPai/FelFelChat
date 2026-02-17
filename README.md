@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FelFel Chat
 
-## Getting Started
+FelFel Chat is a real-time chat application built with Next.js, Prisma (SQLite), and Socket.IO.
 
-First, run the development server:
+## Stack
+- Next.js (App Router) + TypeScript
+- Prisma + SQLite
+- Socket.IO (custom `server.mjs`)
+- JWT auth (HTTP-only cookie)
+
+## Features
+- Private chats, groups, channels
+- Realtime messaging (text/file/sticker/gif)
+- Realtime voice-call signaling
+- Admin panel (users/rooms/messages/storage/backup/settings/audit)
+- Profile management (avatar + bio)
+- Bilingual UI (FA/EN)
+
+## Security and Production Hardening
+Implemented in this project:
+- Path traversal protection for uploaded files
+- Internal admin authorization checks (not proxy-only)
+- Socket membership checks for room events
+- Rate limiting (auth/upload/admin)
+- CSRF same-origin enforcement for unsafe authenticated methods
+- Secure cookie in production
+- Required `JWT_SECRET` (no insecure fallback)
+- Upload validation (MIME + extension + content signature)
+- Backup signature verification before restore (HMAC + SHA256)
+- Structured logging + optional Sentry integration
+- Health/readiness endpoints:
+  - `GET /api/health`
+  - `GET /api/ready`
+
+## Production Environment Variables
+Minimum required:
+- `JWT_SECRET`
+- `APP_ORIGIN`
+- `BACKUP_SIGNING_KEY`
+
+See `.env.example` for the full list.
+
+## One-Line Installer (GitHub Raw)
+You can install and deploy with a single command:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+curl -sL https://raw.githubusercontent.com/matinsenpai/felfelchat/main/install.sh | bash
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Installer behavior:
+- ask required values interactively (path/port/origin), and auto-generate secrets
+- run `npm ci`, `prisma migrate deploy`, `npm run build`
+- install/start `systemd` service when available (or fallback `nohup`)
+- install global `felfel` command
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+After install:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+felfel
+```
 
-## Learn More
+`felfel` opens the TUI manager for:
+- status dashboard (mode, status, port/origin, last deploy/backup)
+- start/stop/restart
+- live logs
+- health/readiness checks
+- full deploy (pull + install + migrate + build + restart)
+- setup wizard for env/port/origin/secrets
+- backup/restore
+- launcher repair
 
-To learn more about Next.js, take a look at the following resources:
+## Useful Commands
+```bash
+# lint
+npm run lint
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# production build
+npm run build
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# run production server
+npm run start
 
-## Deploy on Vercel
+# prisma studio
+npm run db:studio
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Operations and Incident Runbook
+See:
+- `docs/OPERATIONS.md`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Includes:
+- health/readiness usage
+- incident response flow
+- secret rotation policy
+- production deployment checklist
+
+## Local Development
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Create env file:
+```bash
+cp .env.example .env
+```
+
+3. Run migrations:
+```bash
+npx prisma migrate deploy
+```
+
+4. Start dev server:
+```bash
+npm run dev
+```
