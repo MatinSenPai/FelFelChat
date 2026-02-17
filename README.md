@@ -44,7 +44,7 @@ See `.env.example` for the full list.
 You can install and deploy with a single command:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/matinsenpai/felfelchat/main/install.sh | bash
+curl -sL https://raw.githubusercontent.com/MatinSenPai/FelFelChat/main/install.sh | bash
 ```
 
 Installer behavior:
@@ -70,6 +70,21 @@ felfel
 - setup wizard for env/port/origin/secrets
 - backup/restore
 - launcher repair
+- uninstall
+
+## Uninstall
+From TUI:
+- run `felfel` and choose `Uninstall FelFel`
+
+Direct command:
+```bash
+bash install.sh uninstall
+```
+
+Non-interactive force uninstall:
+```bash
+FELFEL_FORCE_UNINSTALL=1 bash install.sh uninstall
+```
 
 ## Useful Commands
 ```bash

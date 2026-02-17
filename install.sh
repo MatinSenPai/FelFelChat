@@ -3,15 +3,15 @@ set -euo pipefail
 
 # FelFel unified installer + manager
 # One-liner:
-#   curl -sL https://raw.githubusercontent.com/matinsenpai/felfelchat/main/install.sh | bash
+#   curl -sL https://raw.githubusercontent.com/MatinSenPai/FelFelChat/main/install.sh | bash
 #
 # After install:
 #   felfel
 
 APP_NAME="FelFel Chat"
-SCRIPT_VERSION="2026.02.18-1"
+SCRIPT_VERSION="2026.02.18-2"
 DEFAULT_SERVICE_NAME="felfelchat"
-DEFAULT_REPO="${GITHUB_REPO:-matinsenpai/felfelchat}"
+DEFAULT_REPO="${GITHUB_REPO:-MatinSenPai/FelFelChat}"
 DEFAULT_REF="${GITHUB_REF:-main}"
 CONFIG_DIR="${HOME}/.config/felfel"
 CONFIG_FILE="${CONFIG_DIR}/config"
@@ -742,6 +742,100 @@ exec \"${APP_DIR}/install.sh\" tui \"\$@\""
   fi
 }
 
+remove_launcher() {
+  local removed="0"
+  if [[ -f "/usr/local/bin/felfel" ]]; then
+    if [[ -w "/usr/local/bin/felfel" ]]; then
+      rm -f "/usr/local/bin/felfel"
+    else
+      as_root rm -f "/usr/local/bin/felfel"
+    fi
+    removed="1"
+    ok "Removed launcher: /usr/local/bin/felfel"
+  fi
+  if [[ -f "${HOME}/.local/bin/felfel" ]]; then
+    rm -f "${HOME}/.local/bin/felfel"
+    removed="1"
+    ok "Removed launcher: ${HOME}/.local/bin/felfel"
+  fi
+  if [[ "$removed" == "0" ]]; then
+    warn "No felfel launcher found"
+  fi
+}
+
+uninstall_app() {
+  header
+  echo "Uninstall ${APP_NAME}"
+  line 62 "-"
+  echo "This will remove service/launcher/config and optionally app files."
+  echo
+
+  local confirm keep_files
+  if [[ "$INTERACTIVE" == "1" ]]; then
+    read -r -p "Type UNINSTALL to continue: " confirm
+    if [[ "$confirm" != "UNINSTALL" ]]; then
+      warn "Cancelled"
+      pause
+      return
+    fi
+    read -r -p "Keep app directory (${APP_DIR})? [Y/n]: " keep_files
+  else
+    if [[ "${FELFEL_FORCE_UNINSTALL:-0}" != "1" ]]; then
+      err "Non-interactive uninstall requires FELFEL_FORCE_UNINSTALL=1"
+      exit 1
+    fi
+    keep_files="n"
+  fi
+
+  if has_systemd_service; then
+    if command -v systemctl >/dev/null 2>&1; then
+      if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        systemctl stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
+        systemctl disable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
+      else
+        sudo systemctl stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
+        sudo systemctl disable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
+      fi
+    fi
+    if [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
+      as_root rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+      as_root systemctl daemon-reload || true
+      ok "Removed systemd service: ${SERVICE_NAME}.service"
+    fi
+  fi
+
+  if [[ -f "$PID_FILE" ]] && is_running_fallback; then
+    stop_server || true
+  fi
+
+  remove_launcher
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    rm -f "$CONFIG_FILE"
+    ok "Removed config: $CONFIG_FILE"
+  fi
+
+  if [[ -d "$CONFIG_DIR" ]] && [[ -z "$(ls -A "$CONFIG_DIR" 2>/dev/null)" ]]; then
+    rmdir "$CONFIG_DIR" 2>/dev/null || true
+  fi
+
+  if [[ "${keep_files:-Y}" =~ ^[Nn]$ ]]; then
+    if [[ -n "$APP_DIR" && "$APP_DIR" != "/" && -d "$APP_DIR" ]]; then
+      rm -rf "$APP_DIR"
+      ok "Removed app directory: $APP_DIR"
+    else
+      warn "Skipped app directory removal (unsafe path or not found)"
+    fi
+  else
+    warn "Kept app directory: $APP_DIR"
+  fi
+
+  ok "Uninstall completed"
+  if [[ "$INTERACTIVE" == "1" ]]; then
+    pause
+  fi
+}
+
 bootstrap_interactive() {
   header
   need_cmd bash
@@ -835,6 +929,7 @@ $(printf "%b" "$COLOR_BOLD")Backup$(printf "%b" "$COLOR_RESET")
 
 $(printf "%b" "$COLOR_BOLD")Tools$(printf "%b" "$COLOR_RESET")
  13) Install/repair 'felfel' launcher
+ 14) Uninstall FelFel
   0) Exit
 EOF
     echo
@@ -853,6 +948,7 @@ EOF
       11) create_backup_manual ;;
       12) restore_backup_manual ;;
       13) header; install_launcher; pause ;;
+      14) uninstall_app ;;
       0) exit 0 ;;
       *) warn "Invalid option"; pause ;;
     esac
@@ -865,9 +961,10 @@ main() {
   case "$mode" in
     install) bootstrap_interactive ;;
     tui) ensure_app_dir_for_tui; menu ;;
+    uninstall) ensure_app_dir_for_tui; uninstall_app ;;
     *)
       err "Unknown mode: $mode"
-      err "Use: install.sh (interactive install) or install.sh tui"
+      err "Use: install.sh (install) or install.sh tui or install.sh uninstall"
       exit 1
       ;;
   esac
