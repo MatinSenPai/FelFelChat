@@ -49,6 +49,7 @@ curl -sL https://raw.githubusercontent.com/MatinSenPai/FelFelChat/main/install.s
 
 Installer behavior:
 - auto-install base prerequisites on fresh servers (`git`, `curl`, `openssl`, `node`, `npm`) when possible
+- enforce/upgrade to Node.js `20+` before `npm ci` (required by Next.js 16)
 - non-interactive one-shot mode for `curl | bash` (uses sane defaults, no blocking prompts)
 - ask required values interactively (path/port/origin), and auto-generate secrets
 - run `npm ci`, `prisma migrate deploy`, `npm run build`

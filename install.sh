@@ -9,7 +9,7 @@ set -euo pipefail
 #   felfel
 
 APP_NAME="FelFel Chat"
-SCRIPT_VERSION="2026.02.18-4"
+SCRIPT_VERSION="2026.02.18-5"
 DEFAULT_SERVICE_NAME="felfelchat"
 DEFAULT_REPO="${GITHUB_REPO:-MatinSenPai/FelFelChat}"
 DEFAULT_REF="${GITHUB_REF:-main}"
@@ -194,29 +194,39 @@ ensure_base_tools() {
 ensure_node_toolchain() {
   local mgr
   mgr="$(detect_pkg_manager)"
+  local min_node_major current_node_major current_node_version
+  min_node_major=20
 
-  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+  node_major() {
+    local raw="${1:-v0.0.0}"
+    raw="${raw#v}"
+    echo "${raw%%.*}"
+  }
+
+  current_node_version="$(node -v 2>/dev/null || echo "v0.0.0")"
+  current_node_major="$(node_major "$current_node_version")"
+
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 && [[ "$current_node_major" -ge "$min_node_major" ]]; then
     return
   fi
 
-  log "Installing Node.js + npm (detected package manager: ${mgr})..."
+  if command -v node >/dev/null 2>&1; then
+    warn "Detected old Node.js ${current_node_version}. Upgrading to Node.js ${min_node_major}+..."
+  else
+    log "Installing Node.js + npm (detected package manager: ${mgr})..."
+  fi
+
   case "$mgr" in
     apt)
       pkg_install "$mgr" ca-certificates gnupg
-      pkg_install "$mgr" nodejs npm || true
-      if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-        log "Switching to NodeSource Node.js 20 setup for apt..."
-        run_pipe_to_root_bash "https://deb.nodesource.com/setup_20.x"
-        pkg_install "$mgr" nodejs
-      fi
+      log "Using NodeSource Node.js 20 for apt..."
+      run_pipe_to_root_bash "https://deb.nodesource.com/setup_20.x"
+      pkg_install "$mgr" nodejs
       ;;
     dnf|yum)
-      pkg_install "$mgr" nodejs npm || true
-      if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-        log "Switching to NodeSource Node.js 20 setup for rpm..."
-        run_pipe_to_root_bash "https://rpm.nodesource.com/setup_20.x"
-        pkg_install "$mgr" nodejs
-      fi
+      log "Using NodeSource Node.js 20 for rpm..."
+      run_pipe_to_root_bash "https://rpm.nodesource.com/setup_20.x"
+      pkg_install "$mgr" nodejs
       ;;
     apk)
       pkg_install "$mgr" nodejs npm
@@ -238,6 +248,13 @@ ensure_node_toolchain() {
   if ! command -v npm >/dev/null 2>&1; then
     err "npm installation failed."
     err "Try running manually: apt/dnf/yum install npm (or rerun installer with internet access)."
+    exit 1
+  fi
+  current_node_version="$(node -v 2>/dev/null || echo "v0.0.0")"
+  current_node_major="$(node_major "$current_node_version")"
+  if [[ "$current_node_major" -lt "$min_node_major" ]]; then
+    err "Node.js ${min_node_major}+ is required, but found ${current_node_version}."
+    err "Please install Node.js ${min_node_major}+ and rerun installer."
     exit 1
   fi
 }
