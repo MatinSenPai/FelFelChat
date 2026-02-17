@@ -270,7 +270,12 @@ export default function AdminDashboard() {
         </nav>
 
         {/* Main Content */}
-        <div style={{ flex: 1, padding: 24 }}>
+        <div style={{ 
+          flex: 1, 
+          padding: 24,
+          overflow: 'auto',
+          maxHeight: 'calc(100vh - 60px)',
+        }}>
           <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 24 }}>{t('admin.dashboard')}</h2>
 
           {loading ? (

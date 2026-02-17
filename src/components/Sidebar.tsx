@@ -17,6 +17,7 @@ interface Room {
   id: string;
   name: string;
   type: string;
+  profilePhotoUrl?: string | null;
   members: { user: { id: string; username: string; displayName: string | null; lastSeen: string } }[];
   messages: { text: string | null; user: { username: string }; createdAt: string }[];
   _count: { messages: number; members: number };
@@ -270,12 +271,21 @@ export default function Sidebar({
                 onMouseOut={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
               >
                 <div style={{ position: 'relative' }}>
-                  <div
-                    className="avatar"
-                    style={{ background: getAvatarColor(roomName) }}
-                  >
-                    {typeIcon || getInitials(roomName)}
-                  </div>
+                  {room.profilePhotoUrl ? (
+                    <img
+                      src={room.profilePhotoUrl}
+                      alt={roomName}
+                      className="avatar"
+                      style={{ objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div
+                      className="avatar"
+                      style={{ background: getAvatarColor(roomName) }}
+                    >
+                      {typeIcon || getInitials(roomName)}
+                    </div>
+                  )}
                   {room.type === 'PRIVATE' && (
                     <div style={{
                       position: 'absolute', bottom: 0, insetInlineEnd: 0,

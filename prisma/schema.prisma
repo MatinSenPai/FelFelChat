@@ -27,14 +27,15 @@ model User {
 }
 
 model Room {
-  id          String       @id @default(uuid())
-  name        String
-  type        String       @default("GROUP") // GROUP, CHANNEL, PRIVATE
-  createdBy   String
-  createdAt   DateTime     @default(now())
-  messages    Message[]
-  members     RoomMember[]
-  voiceCalls  VoiceCall[]
+  id              String       @id @default(uuid())
+  name            String
+  type            String       @default("GROUP") // GROUP, CHANNEL, PRIVATE
+  profilePhotoUrl String?      // Profile photo for groups/channels
+  createdBy       String
+  createdAt       DateTime     @default(now())
+  messages        Message[]
+  members         RoomMember[]
+  voiceCalls      VoiceCall[]
 }
 
 model VoiceCall {

@@ -17,6 +17,11 @@ export async function proxy(request: NextRequest, context: any) {
     return null;
   }
 
+  // Allow public sticker and GIF API routes
+  if (pathname === '/api/stickers' || pathname === '/api/gifs') {
+    return null;
+  }
+
   const token = request.cookies.get('token')?.value;
 
   const isAuthPage = pathname === '/login' || pathname === '/signup';

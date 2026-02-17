@@ -12,6 +12,7 @@ interface Room {
   id: string;
   name: string;
   type: string;
+  profilePhotoUrl?: string | null;
   members: { user: { id: string; username: string; displayName: string | null; lastSeen: string } }[];
   messages: { text: string | null; user: { username: string }; createdAt: string }[];
   _count: { messages: number; members: number };

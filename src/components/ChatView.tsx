@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import { getSocket } from '@/lib/socket';
 import ImagePreviewModal from './ImagePreviewModal';
 import UserProfileModal from './UserProfileModal';
+import GroupMembersModal from './GroupMembersModal';
 import EmojiStickerPicker from './EmojiStickerPicker';
 import { compressImage } from '@/lib/imageCompression';
 
@@ -18,6 +19,7 @@ interface Room {
   id: string;
   name: string;
   type: string;
+  profilePhotoUrl?: string | null;
   members: { user: { id: string; username: string; displayName: string | null; lastSeen: string } }[];
 }
 
@@ -81,9 +83,12 @@ export default function ChatView({
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [viewingUser, setViewingUser] = useState<string | null>(null);
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [uploadingRoomPhoto, setUploadingRoomPhoto] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const roomPhotoInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -239,6 +244,15 @@ export default function ChatView({
           replyToId: replyingTo?.id || null,
         }),
       });
+
+      // Emit via socket for realtime
+      const socket = getSocket();
+      socket.emit('message:send', { 
+        roomId: room.id, 
+        fileUrl: stickerUrl,
+        messageType: 'sticker',
+      });
+
       setReplyingTo(null);
     } catch (error) {
       console.error('Failed to send sticker:', error);
@@ -258,9 +272,77 @@ export default function ChatView({
           replyToId: replyingTo?.id || null,
         }),
       });
+
+      // Emit via socket for realtime
+      const socket = getSocket();
+      socket.emit('message:send', { 
+        roomId: room.id, 
+        fileUrl: gifUrl,
+        messageType: 'gif',
+      });
+
       setReplyingTo(null);
     } catch (error) {
       console.error('Failed to send gif:', error);
+    }
+  };
+
+  // Upload room profile photo (superAdmin only)
+  const handleRoomPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be less than 5MB');
+      return;
+    }
+
+    setUploadingRoomPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`/api/rooms/${room.id}/profile-photo`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // Refresh page to show new photo
+        window.location.reload();
+      } else {
+        alert('Failed to upload photo');
+      }
+    } catch (error) {
+      console.error('Failed to upload room photo:', error);
+      alert('Failed to upload photo');
+    }
+    setUploadingRoomPhoto(false);
+  };
+
+  // Remove room profile photo
+  const handleRemoveRoomPhoto = async () => {
+    if (!confirm(t('room.removePhoto') + '?')) return;
+
+    try {
+      const res = await fetch(`/api/rooms/${room.id}/profile-photo`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        alert('Failed to remove photo');
+      }
+    } catch (error) {
+      console.error('Failed to remove room photo:', error);
+      alert('Failed to remove photo');
     }
   };
 
@@ -291,29 +373,85 @@ export default function ChatView({
           <button className="btn btn-ghost btn-icon btn-sm" onClick={onToggleSidebar}>
             ☰
           </button>
+          
+          {/* Room avatar/icon - clickable for groups */}
           <div
-            className="avatar"
-            style={{ background: getAvatarColor(roomDisplayName) }}
+            style={{
+              cursor: room.type !== 'PRIVATE' ? 'pointer' : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}
+            onClick={() => room.type !== 'PRIVATE' && setShowMembersModal(true)}
           >
-            {room.type === 'CHANNEL' ? '📢' : room.type === 'GROUP' ? '👥' : roomDisplayName.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 15 }}>{roomDisplayName}</div>
-            <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
-              {room.type === 'PRIVATE' ? (
-                isOtherOnline ? (
-                  <span style={{ color: 'var(--online)' }}>● {t('chat.online')}</span>
+            {room.profilePhotoUrl ? (
+              <img
+                src={room.profilePhotoUrl}
+                alt={room.name}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                }}
+              />
+            ) : (
+              <div
+                className="avatar"
+                style={{ background: getAvatarColor(roomDisplayName) }}
+              >
+                {room.type === 'CHANNEL' ? '📢' : room.type === 'GROUP' ? '👥' : roomDisplayName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{roomDisplayName}</div>
+              <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+                {room.type === 'PRIVATE' ? (
+                  isOtherOnline ? (
+                    <span style={{ color: 'var(--online)' }}>● {t('chat.online')}</span>
+                  ) : (
+                    t('chat.offline')
+                  )
                 ) : (
-                  t('chat.offline')
-                )
-              ) : (
-                `${room.members.length} ${t('chat.members')}`
-              )}
+                  `${room.members.length} ${t('chat.members')}`
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 4 }}>
+          {/* Room photo upload (superAdmin only, for groups/channels) */}
+          {user.isSuperAdmin && room.type !== 'PRIVATE' && (
+            <div>
+              <input
+                ref={roomPhotoInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleRoomPhotoUpload}
+              />
+              <button
+                className="btn btn-ghost btn-icon btn-sm"
+                onClick={() => roomPhotoInputRef.current?.click()}
+                disabled={uploadingRoomPhoto}
+                title={t('room.uploadPhoto')}
+              >
+                {uploadingRoomPhoto ? '⏳' : '📷'}
+              </button>
+              {room.profilePhotoUrl && (
+                <button
+                  className="btn btn-ghost btn-icon btn-sm"
+                  onClick={handleRemoveRoomPhoto}
+                  title={t('room.removePhoto')}
+                  style={{ color: 'var(--error)' }}
+                >
+                  🗑️
+                </button>
+              )}
+            </div>
+          )}
+          
           {/* Voice call button — only for private chats */}
           {room.type === 'PRIVATE' && otherUser && (
             <button
@@ -367,7 +505,7 @@ export default function ChatView({
                 {/* Avatar (side) - clickable */}
                 <div
                   style={{ width: 32, flexShrink: 0, cursor: showAvatar && !isOwn ? 'pointer' : 'default' }}
-                  onClick={() => showAvatar && !isOwn && setProfileUserId(msg.user.id)}
+                  onClick={() => showAvatar && !isOwn && setViewingUser(msg.user.id)}
                   title={showAvatar && !isOwn ? 'View Profile' : ''}
                 >
                   {showAvatar && !isOwn && (
@@ -426,7 +564,7 @@ export default function ChatView({
                           marginBottom: 4,
                           cursor: 'pointer',
                         }}
-                        onClick={() => setProfileUserId(msg.user.id)}
+                        onClick={() => setViewingUser(msg.user.id)}
                       >
                         {msg.user.displayName || msg.user.username}
                       </div>
@@ -857,10 +995,26 @@ export default function ChatView({
       )}
 
       {/* User Profile Modal */}
-      {profileUserId && (
+      {viewingUser && (
         <UserProfileModal
-          userId={profileUserId}
-          onClose={() => setProfileUserId(null)}
+          userId={viewingUser}
+          onClose={() => setViewingUser(null)}
+        />
+      )}
+
+      {/* Group Members Modal */}
+      {showMembersModal && (
+        <GroupMembersModal
+          roomId={room.id}
+          roomName={room.name}
+          isOpen={showMembersModal}
+          onClose={() => setShowMembersModal(false)}
+          onMemberClick={(userId) => {
+            setShowMembersModal(false);
+            setViewingUser(userId);
+          }}
+          t={t}
+          dir={dir}
         />
       )}
     </div>
