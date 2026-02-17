@@ -9,6 +9,7 @@ set -euo pipefail
 #   felfel
 
 APP_NAME="FelFel Chat"
+SCRIPT_VERSION="2026.02.18-1"
 DEFAULT_SERVICE_NAME="felfelchat"
 DEFAULT_REPO="${GITHUB_REPO:-matinsenpai/felfelchat}"
 DEFAULT_REF="${GITHUB_REF:-main}"
@@ -66,6 +67,20 @@ as_root() {
     return
   fi
   err "Root access is required to install system packages. Run as root or install sudo."
+  exit 1
+}
+
+run_pipe_to_root_bash() {
+  local script_url="$1"
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    curl -fsSL "$script_url" | bash -
+    return
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    curl -fsSL "$script_url" | sudo -E bash -
+    return
+  fi
+  err "Root access is required to run bootstrap script: $script_url"
   exit 1
 }
 
@@ -138,10 +153,20 @@ ensure_node_toolchain() {
   case "$mgr" in
     apt)
       pkg_install "$mgr" ca-certificates gnupg
-      pkg_install "$mgr" nodejs npm
+      pkg_install "$mgr" nodejs npm || true
+      if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+        log "Switching to NodeSource Node.js 20 setup for apt..."
+        run_pipe_to_root_bash "https://deb.nodesource.com/setup_20.x"
+        pkg_install "$mgr" nodejs
+      fi
       ;;
     dnf|yum)
-      pkg_install "$mgr" nodejs npm
+      pkg_install "$mgr" nodejs npm || true
+      if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+        log "Switching to NodeSource Node.js 20 setup for rpm..."
+        run_pipe_to_root_bash "https://rpm.nodesource.com/setup_20.x"
+        pkg_install "$mgr" nodejs
+      fi
       ;;
     apk)
       pkg_install "$mgr" nodejs npm
@@ -156,8 +181,15 @@ ensure_node_toolchain() {
       ;;
   esac
 
-  need_cmd node
-  need_cmd npm
+  if ! command -v node >/dev/null 2>&1; then
+    err "Node.js installation failed."
+    exit 1
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    err "npm installation failed."
+    err "Try running manually: apt/dnf/yum install npm (or rerun installer with internet access)."
+    exit 1
+  fi
 }
 
 pause() { read -r -p "Press Enter to continue..."; }
@@ -226,6 +258,7 @@ header() {
   line 62 "="
   printf "%b" "$COLOR_RESET"
   printf " App       : %s\n" "$APP_NAME"
+  printf " Version   : %s\n" "$SCRIPT_VERSION"
   printf " Mode      : %s\n" "$mode"
   printf " Status    : %s\n" "$(status_badge "$status")"
   printf " Port      : %s\n" "$port"
