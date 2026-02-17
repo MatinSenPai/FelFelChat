@@ -56,6 +56,110 @@ need_cmd() {
   fi
 }
 
+as_root() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "$@"
+    return
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+    return
+  fi
+  err "Root access is required to install system packages. Run as root or install sudo."
+  exit 1
+}
+
+detect_pkg_manager() {
+  if command -v apt-get >/dev/null 2>&1; then echo "apt"; return; fi
+  if command -v dnf >/dev/null 2>&1; then echo "dnf"; return; fi
+  if command -v yum >/dev/null 2>&1; then echo "yum"; return; fi
+  if command -v apk >/dev/null 2>&1; then echo "apk"; return; fi
+  if command -v pacman >/dev/null 2>&1; then echo "pacman"; return; fi
+  echo "unknown"
+}
+
+pkg_install() {
+  local mgr="$1"
+  shift
+  case "$mgr" in
+    apt)
+      as_root env DEBIAN_FRONTEND=noninteractive apt-get update -y
+      as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+      ;;
+    dnf) as_root dnf install -y "$@" ;;
+    yum) as_root yum install -y "$@" ;;
+    apk) as_root apk add --no-cache "$@" ;;
+    pacman) as_root pacman -Sy --noconfirm --needed "$@" ;;
+    *)
+      err "Unsupported package manager. Install these manually: $*"
+      exit 1
+      ;;
+  esac
+}
+
+ensure_base_tools() {
+  local mgr
+  mgr="$(detect_pkg_manager)"
+
+  if ! command -v git >/dev/null 2>&1; then
+    log "Installing git..."
+    case "$mgr" in
+      apt|dnf|yum|apk|pacman) pkg_install "$mgr" git ;;
+      *) err "git is required but package manager is unsupported."; exit 1 ;;
+    esac
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log "Installing curl..."
+    case "$mgr" in
+      apt|dnf|yum|apk|pacman) pkg_install "$mgr" curl ;;
+      *) err "curl is required but package manager is unsupported."; exit 1 ;;
+    esac
+  fi
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    log "Installing openssl..."
+    case "$mgr" in
+      apt|dnf|yum|apk|pacman) pkg_install "$mgr" openssl ;;
+      *) warn "openssl not found; fallback random generator will be used." ;;
+    esac
+  fi
+}
+
+ensure_node_toolchain() {
+  local mgr
+  mgr="$(detect_pkg_manager)"
+
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    return
+  fi
+
+  log "Installing Node.js + npm (detected package manager: ${mgr})..."
+  case "$mgr" in
+    apt)
+      pkg_install "$mgr" ca-certificates gnupg
+      pkg_install "$mgr" nodejs npm
+      ;;
+    dnf|yum)
+      pkg_install "$mgr" nodejs npm
+      ;;
+    apk)
+      pkg_install "$mgr" nodejs npm
+      ;;
+    pacman)
+      pkg_install "$mgr" nodejs npm
+      ;;
+    *)
+      err "Cannot auto-install Node.js/npm on this system."
+      err "Please install Node.js 20+ and npm, then run installer again."
+      exit 1
+      ;;
+  esac
+
+  need_cmd node
+  need_cmd npm
+}
+
 pause() { read -r -p "Press Enter to continue..."; }
 
 line() {
@@ -209,6 +313,7 @@ is_running_fallback() {
 }
 
 clone_or_update_repo() {
+  ensure_base_tools
   local repo="$1" ref="$2"
   mkdir -p "$(dirname "$APP_DIR")"
   if [[ -d "$APP_DIR/.git" ]]; then
@@ -267,18 +372,25 @@ setup_env_interactive() {
 }
 
 install_dependencies() {
+  ensure_node_toolchain
   log "Installing dependencies..."
   (cd "$APP_DIR" && npm ci)
   ok "Dependencies installed"
 }
 
 run_migrations() {
+  ensure_node_toolchain
   log "Running Prisma migrations..."
-  (cd "$APP_DIR" && npx prisma migrate deploy)
+  if command -v npx >/dev/null 2>&1; then
+    (cd "$APP_DIR" && npx prisma migrate deploy)
+  else
+    (cd "$APP_DIR" && npm exec -- prisma migrate deploy)
+  fi
   ok "Migrations complete"
 }
 
 build_app() {
+  ensure_node_toolchain
   log "Building application..."
   (cd "$APP_DIR" && npm run build)
   ok "Build complete"
@@ -327,6 +439,7 @@ EOF
 }
 
 start_server() {
+  ensure_node_toolchain
   if has_systemd_service && [[ "$USE_SYSTEMD" == "1" ]]; then
     if command -v sudo >/dev/null 2>&1; then sudo systemctl start "${SERVICE_NAME}.service"; else systemctl start "${SERVICE_NAME}.service"; fi
     ok "Service started via systemd"
@@ -416,7 +529,7 @@ tail_logs() {
 
 health_check() {
   header
-  need_cmd curl
+  ensure_base_tools
   local port health_url ready_url
   port="$(load_env_value PORT)"
   [[ -n "$port" ]] || port="3000"
@@ -438,6 +551,7 @@ health_check() {
 }
 
 update_repo() {
+  ensure_base_tools
   log "Updating source code..."
   (cd "$APP_DIR" && git fetch --all --tags && git pull --ff-only)
   ok "Repository updated"
@@ -570,10 +684,9 @@ exec \"${APP_DIR}/install.sh\" tui \"\$@\""
 
 bootstrap_interactive() {
   header
-  need_cmd git
-  need_cmd npm
-  need_cmd npx
   need_cmd bash
+  ensure_base_tools
+  ensure_node_toolchain
 
   local install_dir repo ref use_systemd default_dir default_port default_origin
   default_dir="$(default_install_dir)"
