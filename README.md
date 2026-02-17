@@ -49,6 +49,7 @@ curl -sL https://raw.githubusercontent.com/matinsenpai/felfelchat/main/install.s
 
 Installer behavior:
 - auto-install base prerequisites on fresh servers (`git`, `curl`, `openssl`, `node`, `npm`) when possible
+- non-interactive one-shot mode for `curl | bash` (uses sane defaults, no blocking prompts)
 - ask required values interactively (path/port/origin), and auto-generate secrets
 - run `npm ci`, `prisma migrate deploy`, `npm run build`
 - install/start `systemd` service when available (or fallback `nohup`)

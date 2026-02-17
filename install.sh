@@ -44,6 +44,7 @@ BACKUP_DIR=""
 DB_FILE=""
 LAST_DEPLOY_FILE=""
 LAST_BACKUP_FILE=""
+INTERACTIVE="0"
 
 log() { printf "%b[FelFel]%b %s\n" "$COLOR_CYAN" "$COLOR_RESET" "$1"; }
 ok() { printf "%b[OK]%b %s\n" "$COLOR_GREEN" "$COLOR_RESET" "$1"; }
@@ -54,6 +55,31 @@ need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     err "Missing command: $1"
     exit 1
+  fi
+}
+
+detect_interactive() {
+  if [[ "${FELFEL_AUTO:-0}" == "1" ]]; then
+    INTERACTIVE="0"
+    return
+  fi
+  if [[ -t 0 && -t 1 ]]; then
+    INTERACTIVE="1"
+  else
+    INTERACTIVE="0"
+  fi
+}
+
+prompt_with_default() {
+  local label="$1"
+  local default_value="$2"
+  local answer=""
+  if [[ "$INTERACTIVE" == "1" ]]; then
+    read -r -p "${label} [${default_value}]: " answer
+    echo "${answer:-$default_value}"
+  else
+    log "${label}: using default '${default_value}' (non-interactive mode)"
+    echo "$default_value"
   fi
 }
 
@@ -192,7 +218,11 @@ ensure_node_toolchain() {
   fi
 }
 
-pause() { read -r -p "Press Enter to continue..."; }
+pause() {
+  if [[ "$INTERACTIVE" == "1" ]]; then
+    read -r -p "Press Enter to continue..."
+  fi
+}
 
 line() {
   local width char
@@ -369,11 +399,8 @@ setup_env_interactive() {
   default_origin="$(load_env_value APP_ORIGIN)"
   [[ -n "$default_origin" ]] || default_origin="http://localhost:${default_port}"
 
-  read -r -p "Port [${default_port}]: " port
-  port="${port:-$default_port}"
-
-  read -r -p "Public app origin [${default_origin}]: " origin
-  origin="${origin:-$default_origin}"
+  port="$(prompt_with_default "Port" "$default_port")"
+  origin="$(prompt_with_default "Public app origin" "$default_origin")"
 
   jwt_secret="$(load_env_value JWT_SECRET)"
   if [[ -z "$jwt_secret" ]]; then
@@ -718,6 +745,7 @@ exec \"${APP_DIR}/install.sh\" tui \"\$@\""
 bootstrap_interactive() {
   header
   need_cmd bash
+  detect_interactive
   ensure_base_tools
   ensure_node_toolchain
 
@@ -728,17 +756,19 @@ bootstrap_interactive() {
 
   echo "Welcome to ${APP_NAME} one-shot installer"
   echo
-  read -r -p "Install directory [${default_dir}]: " install_dir
-  install_dir="${install_dir:-$default_dir}"
+  install_dir="$(prompt_with_default "Install directory" "$default_dir")"
   APP_DIR="$install_dir"
   set_paths
 
-  read -r -p "Repository [${DEFAULT_REPO}]: " repo
-  repo="${repo:-$DEFAULT_REPO}"
-  read -r -p "Branch/Ref [${DEFAULT_REF}]: " ref
-  ref="${ref:-$DEFAULT_REF}"
-  read -r -p "Use systemd service if available? [Y/n]: " use_systemd
-  if [[ "${use_systemd:-Y}" =~ ^[Nn]$ ]]; then USE_SYSTEMD="0"; else USE_SYSTEMD="1"; fi
+  repo="$(prompt_with_default "Repository" "$DEFAULT_REPO")"
+  ref="$(prompt_with_default "Branch/Ref" "$DEFAULT_REF")"
+  if [[ "$INTERACTIVE" == "1" ]]; then
+    read -r -p "Use systemd service if available? [Y/n]: " use_systemd
+    if [[ "${use_systemd:-Y}" =~ ^[Nn]$ ]]; then USE_SYSTEMD="0"; else USE_SYSTEMD="1"; fi
+  else
+    USE_SYSTEMD="1"
+    log "Use systemd service if available: yes (non-interactive mode)"
+  fi
 
   clone_or_update_repo "$repo" "$ref"
   set_paths
@@ -754,7 +784,12 @@ bootstrap_interactive() {
 
   ok "Installation finished."
   echo "Run: felfel"
-  read -r -p "Open TUI manager now? [Y/n]: " open_now
+  if [[ "$INTERACTIVE" == "1" ]]; then
+    read -r -p "Open TUI manager now? [Y/n]: " open_now
+  else
+    open_now="n"
+    log "Open TUI manager now: no (non-interactive mode)"
+  fi
   if [[ "${open_now:-Y}" =~ ^[Yy]$ ]]; then
     "${APP_DIR}/install.sh" tui
   fi
@@ -825,6 +860,7 @@ EOF
 }
 
 main() {
+  detect_interactive
   local mode="${1:-install}"
   case "$mode" in
     install) bootstrap_interactive ;;
