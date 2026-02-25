@@ -5,6 +5,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
 import Image from 'next/image';
+import AppIcon, { AppIconName } from '@/components/AppIcon';
 
 interface Stats {
   totalUsers: number;
@@ -216,14 +217,14 @@ export default function AdminDashboard() {
 
   if (!user?.isSuperAdmin) return <div style={{ padding: 40, textAlign: 'center' }}>Forbidden</div>;
 
-  const navItems = [
-    { href: '/admin', icon: '📊', label: t('admin.dashboard') },
-    { href: '/admin/users', icon: '👤', label: t('admin.users') },
-    { href: '/admin/rooms', icon: '💬', label: t('admin.rooms') },
-    { href: '/admin/messages', icon: '✉️', label: t('admin.messages') },
-    { href: '/admin/calls', icon: '📞', label: t('admin.calls') },
-    { href: '/admin/storage', icon: '💾', label: t('admin.storage') },
-    { href: '/admin/backup', icon: '📦', label: t('admin.backup') },
+  const navItems: { href: string; icon: AppIconName; label: string }[] = [
+    { href: '/admin', icon: 'dashboard', label: t('admin.dashboard') },
+    { href: '/admin/users', icon: 'user', label: t('admin.users') },
+    { href: '/admin/rooms', icon: 'chat', label: t('admin.rooms') },
+    { href: '/admin/messages', icon: 'messages', label: t('admin.messages') },
+    { href: '/admin/calls', icon: 'phone', label: t('admin.calls') },
+    { href: '/admin/storage', icon: 'storage', label: t('admin.storage') },
+    { href: '/admin/backup', icon: 'backup', label: t('admin.backup') },
   ];
 
   return (
@@ -238,8 +239,13 @@ export default function AdminDashboard() {
         justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Link href="/" className="btn btn-ghost btn-sm">← {t('common.back')}</Link>
-          <span style={{ fontSize: 20 }}>🌶️</span>
+          <Link href="/" className="btn btn-ghost btn-sm">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <AppIcon name="arrowLeft" size={14} />
+              <span>{t('common.back')}</span>
+            </span>
+          </Link>
+          <AppIcon name="logo" size={20} />
           <h1 style={{ fontSize: 18, fontWeight: 700 }}>{t('admin.panel')}</h1>
         </div>
         <div className="lang-toggle">
@@ -273,7 +279,7 @@ export default function AdminDashboard() {
               onMouseOver={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
               onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
             >
-              <span>{item.icon}</span>
+              <AppIcon name={item.icon} size={16} />
               {item.label}
             </Link>
           ))}
@@ -316,7 +322,10 @@ export default function AdminDashboard() {
 
               {/* General Settings */}
               <div className="card" style={{ marginBottom: 24 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>⚙️ {t('admin.generalSettings') || 'General Settings'}</h3>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <AppIcon name="settings" size={16} />
+                  <span>{t('admin.generalSettings') || 'General Settings'}</span>
+                </h3>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
                   <div>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('admin.registration') || 'User Registration'}</div>
@@ -338,7 +347,10 @@ export default function AdminDashboard() {
               {/* Sticker Management */}
               <div className="card" style={{ marginBottom: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <h3 style={{ fontSize: 16, fontWeight: 600 }}>🎨 {t('admin.stickers')}</h3>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <AppIcon name="paint" size={16} />
+                    <span>{t('admin.stickers')}</span>
+                  </h3>
                   <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
                     {t('admin.totalStickers')}: {stickers.length}
                   </div>
@@ -421,7 +433,10 @@ export default function AdminDashboard() {
               {/* GIF Management */}
               <div className="card" style={{ marginBottom: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <h3 style={{ fontSize: 16, fontWeight: 600 }}>🎬 {t('admin.gifs')}</h3>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <AppIcon name="film" size={16} />
+                    <span>{t('admin.gifs')}</span>
+                  </h3>
                   <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
                     {t('admin.totalGifs')}: {gifs.length}
                   </div>

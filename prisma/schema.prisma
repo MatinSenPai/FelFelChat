@@ -3,34 +3,34 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id            String    @id @default(uuid())
-  username      String    @unique
+  id            String       @id @default(uuid()) @map("_id")
+  username      String       @unique
   displayName   String?
-  avatarUrl     String?   // Profile picture URL
-  bio           String?   // User bio (max 200 chars)
+  avatarUrl     String?
+  bio           String?
   password      String
-  isSuperAdmin  Boolean   @default(false)
-  isBanned      Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  lastSeen      DateTime  @default(now())
+  isSuperAdmin  Boolean      @default(false)
+  isBanned      Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  lastSeen      DateTime     @default(now())
   messages      Message[]
   rooms         RoomMember[]
-  callsMade     CallLog[] @relation("Caller")
-  callsReceived CallLog[] @relation("Callee")
+  callsMade     CallLog[]    @relation("Caller")
+  callsReceived CallLog[]    @relation("Callee")
   stickers      Sticker[]
   gifs          Gif[]
 }
 
 model Room {
-  id              String       @id @default(uuid())
+  id              String       @id @default(uuid()) @map("_id")
   name            String
-  type            String       @default("GROUP") // GROUP, CHANNEL, PRIVATE
-  profilePhotoUrl String?      // Profile photo for groups/channels
+  type            String       @default("GROUP")
+  profilePhotoUrl String?
   createdBy       String
   createdAt       DateTime     @default(now())
   messages        Message[]
@@ -39,81 +39,80 @@ model Room {
 }
 
 model VoiceCall {
-  id         String   @id @default(uuid())
-  roomId     String
-  callerId   String
-  calleeId   String
-  status     String   // RINGING, ACTIVE, ENDED, MISSED
-  startedAt  DateTime @default(now())
-  endedAt    DateTime?
-  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid()) @map("_id")
+  roomId    String
+  callerId  String
+  calleeId  String
+  status    String
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  room      Room     @relation(fields: [roomId], references: [id])
+
   @@index([roomId])
   @@index([callerId])
   @@index([calleeId])
 }
 
 model Settings {
-  id                    String   @id @default("default")
-  registrationEnabled   Boolean  @default(true)
-  updatedAt             DateTime @updatedAt
+  id                  String   @id @default("default") @map("_id")
+  registrationEnabled Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
 }
 
 model Sticker {
-  id          String   @id @default(uuid())
-  fileUrl     String
-  fileName    String
-  fileSize    Int
-  uploadedBy  String
-  uploadedAt  DateTime @default(now())
-  
-  uploader    User     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
-  
+  id         String   @id @default(uuid()) @map("_id")
+  fileUrl    String
+  fileName   String
+  fileSize   Int
+  uploadedBy String
+  uploadedAt DateTime @default(now())
+  uploader   User     @relation(fields: [uploadedBy], references: [id])
+
   @@index([uploadedBy])
   @@index([uploadedAt])
 }
 
 model Gif {
-  id          String   @id @default(uuid())
-  fileUrl     String
-  fileName    String
-  fileSize    Int
-  format      String   // 'mp4' or 'gif'
-  uploadedBy  String
-  uploadedAt  DateTime @default(now())
-  
-  uploader    User     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
-  
+  id         String   @id @default(uuid()) @map("_id")
+  fileUrl    String
+  fileName   String
+  fileSize   Int
+  format     String
+  uploadedBy String
+  uploadedAt DateTime @default(now())
+  uploader   User     @relation(fields: [uploadedBy], references: [id])
+
   @@index([uploadedBy])
   @@index([uploadedAt])
 }
 
 model RoomMember {
-  id       String @id @default(uuid())
+  id       String   @id @default(uuid()) @map("_id")
   userId   String
   roomId   String
   joinedAt DateTime @default(now())
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room     Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+  room     Room     @relation(fields: [roomId], references: [id])
 
   @@unique([userId, roomId])
 }
 
 model Message {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid()) @map("_id")
   text        String?
   fileUrl     String?
-  fileName    String?  // Original filename for display/download
+  fileName    String?
   fileSize    Int?
-  mimeType    String?  // MIME type of the file (e.g., image/png, video/mp4)
-  messageType String   @default("text") // 'text', 'file', 'sticker', 'gif'
+  mimeType    String?
+  messageType String    @default("text")
   userId      String
   roomId      String
-  replyToId   String?  // ID of message being replied to
-  createdAt   DateTime @default(now())
-  readBy      String   @default("")
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  replyTo     Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replyToId   String?
+  createdAt   DateTime  @default(now())
+  readBy      String    @default("")
+  user        User      @relation(fields: [userId], references: [id])
+  room        Room      @relation(fields: [roomId], references: [id])
+  replyTo     Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replies     Message[] @relation("MessageReplies")
 
   @@index([roomId])
@@ -122,19 +121,19 @@ model Message {
 }
 
 model CallLog {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid()) @map("_id")
   callerId  String
   calleeId  String
-  startedAt DateTime  @default(now())
+  startedAt DateTime @default(now())
   endedAt   DateTime?
   duration  Int?
-  status    String    @default("RINGING") // RINGING, ACTIVE, ENDED, MISSED, REJECTED, TERMINATED
-  caller    User      @relation("Caller", fields: [callerId], references: [id], onDelete: Cascade)
-  callee    User      @relation("Callee", fields: [calleeId], references: [id], onDelete: Cascade)
+  status    String   @default("RINGING")
+  caller    User     @relation("Caller", fields: [callerId], references: [id])
+  callee    User     @relation("Callee", fields: [calleeId], references: [id])
 }
 
 model BackupLog {
-  id        String   @id @default(uuid())
+  id        String   @id @default(uuid()) @map("_id")
   filename  String
   size      Int
   createdAt DateTime @default(now())

@@ -18,7 +18,7 @@ export async function GET() {
   }
 
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await prisma.$runCommandRaw({ ping: 1 });
   } catch (error) {
     checks.database = { ok: false, detail: String(error) };
   }

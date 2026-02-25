@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import AppIcon from './AppIcon';
 
 interface ImagePreviewModalProps {
   imageUrl: string;
@@ -60,10 +61,16 @@ export default function ImagePreviewModal({ imageUrl, onClose }: ImagePreviewMod
         />
         <div style={{ display: 'flex', gap: 12 }}>
           <button className="btn btn-primary" onClick={handleDownload}>
-            📥 Download
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <AppIcon name="download" size={16} />
+              <span>Download</span>
+            </span>
           </button>
           <button className="btn btn-ghost" onClick={onClose}>
-            ✕ Close
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <AppIcon name="close" size={16} />
+              <span>Close</span>
+            </span>
           </button>
         </div>
       </div>

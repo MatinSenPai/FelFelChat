@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { getSocket } from '@/lib/socket';
 import ImagePreviewModal from './ImagePreviewModal';
 import UserProfileModal from './UserProfileModal';
 import GroupMembersModal from './GroupMembersModal';
 import EmojiStickerPicker from './EmojiStickerPicker';
 import { compressImage } from '@/lib/imageCompression';
+import { decryptHushMessage, encryptHushMessage, isHushEncryptedMessage } from '@/lib/hushCrypto';
 import Image from 'next/image';
+import AppIcon from './AppIcon';
 
 interface User {
   id: string;
@@ -27,6 +29,9 @@ interface Room {
 interface Message {
   id: string;
   text: string | null;
+  decryptedText?: string | null;
+  encryptedTextState?: 'plain' | 'locked' | 'failed';
+  readBy?: string;
   fileUrl: string | null;
   fileName?: string | null;
   mimeType?: string | null;
@@ -37,11 +42,25 @@ interface Message {
   replyTo?: {
     id: string;
     text: string | null;
+    decryptedText?: string | null;
+    encryptedTextState?: 'plain' | 'locked' | 'failed';
     fileUrl: string | null;
     fileName?: string | null;
     mimeType?: string | null;
     user: { id: string; username: string; displayName: string | null; avatarUrl?: string | null };
   } | null;
+  pending?: boolean;
+}
+
+interface MessageNewEventPayload {
+  roomId?: string;
+  message?: Message;
+}
+
+interface MessageReadEventPayload {
+  messageId?: string;
+  userId?: string;
+  readBy?: string;
 }
 
 interface ChatViewProps {
@@ -66,6 +85,22 @@ function getAvatarColor(name: string) {
   return avatarColors[Math.abs(hash) % avatarColors.length];
 }
 
+function splitReadBy(value?: string): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(/[,\s;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function mergeReadBy(current: string | undefined, userId: string): string {
+  const next = new Set(splitReadBy(current));
+  next.add(userId);
+  return Array.from(next).join(',');
+}
+
 export default function ChatView({
   room,
   user,
@@ -87,47 +122,189 @@ export default function ChatView({
   const [viewingUser, setViewingUser] = useState<string | null>(null);
   const [showMembersModal, setShowMembersModal] = useState(false);
   const [uploadingRoomPhoto, setUploadingRoomPhoto] = useState(false);
+  const [animatingMessageIds, setAnimatingMessageIds] = useState<Set<string>>(new Set());
+  const [sendInputBurst, setSendInputBurst] = useState(false);
+  const [roomPassphrase, setRoomPassphrase] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const roomPhotoInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const animationTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const roomPassphraseRef = useRef('');
+  const seenMessagesRef = useRef<Set<string>>(new Set());
 
-  // Fetch messages
+  useEffect(() => {
+    roomPassphraseRef.current = roomPassphrase;
+  }, [roomPassphrase]);
+
+  useEffect(() => {
+    const storageKey = `felfel:hush:${room.id}`;
+    seenMessagesRef.current = new Set();
+    roomPassphraseRef.current = '';
+    setRoomPassphrase('');
+    const storedPassphrase = sessionStorage.getItem(storageKey) || '';
+    roomPassphraseRef.current = storedPassphrase;
+    setRoomPassphrase(storedPassphrase);
+  }, [room.id]);
+
+  const hydrateText = useCallback(async (rawText: string | null | undefined): Promise<{ text: string | null; state: 'plain' | 'locked' | 'failed' }> => {
+    if (!rawText) {
+      return { text: null, state: 'plain' };
+    }
+    if (!isHushEncryptedMessage(rawText)) {
+      return { text: rawText, state: 'plain' };
+    }
+    const passphrase = roomPassphraseRef.current.trim();
+    if (!passphrase) {
+      return { text: null, state: 'locked' };
+    }
+    try {
+      const decrypted = await decryptHushMessage(rawText, passphrase, room.id);
+      return { text: decrypted, state: 'plain' };
+    } catch {
+      return { text: null, state: 'failed' };
+    }
+  }, [room.id]);
+
+  const hydrateMessage = useCallback(async (incoming: Message): Promise<Message> => {
+    const messageText = await hydrateText(incoming.text);
+    let hydratedReply = incoming.replyTo || null;
+    if (incoming.replyTo) {
+      const replyText = await hydrateText(incoming.replyTo.text);
+      hydratedReply = {
+        ...incoming.replyTo,
+        decryptedText: replyText.text,
+        encryptedTextState: replyText.state,
+      };
+    }
+    return {
+      ...incoming,
+      decryptedText: messageText.text,
+      encryptedTextState: messageText.state,
+      replyTo: hydratedReply,
+    };
+  }, [hydrateText]);
+
   useEffect(() => {
     const loadMessages = async () => {
       setLoading(true);
       setMessages([]);
-
       try {
         const res = await fetch(`/api/messages/${room.id}`);
         const data = await res.json();
-        if (data.messages) setMessages(data.messages);
+        if (data.messages) {
+          const hydrated = await Promise.all((data.messages as Message[]).map((item) => hydrateMessage(item)));
+          setMessages(hydrated);
+        }
       } catch (error) {
         console.error(error);
       } finally {
         setLoading(false);
       }
     };
-
     const timer = setTimeout(() => {
       void loadMessages();
     }, 0);
-
     return () => clearTimeout(timer);
-  }, [room.id]);
+  }, [room.id, roomPassphrase, hydrateMessage]);
 
-  // Socket: listen for new messages in this room
+  const markMessageAnimated = useCallback((messageId: string) => {
+    setAnimatingMessageIds((prev) => {
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+    const existingTimeout = animationTimeoutsRef.current.get(messageId);
+    if (existingTimeout) clearTimeout(existingTimeout);
+    const timeoutId = setTimeout(() => {
+      setAnimatingMessageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
+      animationTimeoutsRef.current.delete(messageId);
+    }, 420);
+    animationTimeoutsRef.current.set(messageId, timeoutId);
+  }, []);
+
+  const upsertMessage = useCallback(async (incoming: Message) => {
+    const hydratedIncoming = await hydrateMessage(incoming);
+    setMessages((prev) => {
+      const existingIndex = prev.findIndex((item) => item.id === hydratedIncoming.id);
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        next[existingIndex] = { ...next[existingIndex], ...hydratedIncoming, pending: false };
+        return next;
+      }
+      return [...prev, hydratedIncoming];
+    });
+    markMessageAnimated(hydratedIncoming.id);
+  }, [markMessageAnimated, hydrateMessage]);
+
+  const replaceTempMessage = useCallback(async (tempId: string, message: Message) => {
+    const hydratedMessage = await hydrateMessage(message);
+    setMessages((prev) => {
+      const tempIndex = prev.findIndex((item) => item.id === tempId);
+      if (tempIndex >= 0) {
+        const next = prev.filter((item) => item.id !== tempId && item.id !== hydratedMessage.id);
+        const insertIndex = Math.min(tempIndex, next.length);
+        next.splice(insertIndex, 0, { ...hydratedMessage, pending: false });
+        return next;
+      }
+      if (prev.some((item) => item.id === hydratedMessage.id)) {
+        return prev.map((item) => (item.id === hydratedMessage.id ? { ...item, ...hydratedMessage, pending: false } : item));
+      }
+      return [...prev, hydratedMessage];
+    });
+    markMessageAnimated(hydratedMessage.id);
+  }, [markMessageAnimated, hydrateMessage]);
+
+  useEffect(() => {
+    return () => {
+      for (const timeoutId of animationTimeoutsRef.current.values()) {
+        clearTimeout(timeoutId);
+      }
+      animationTimeoutsRef.current.clear();
+    };
+  }, []);
+
   useEffect(() => {
     const socket = getSocket();
 
-    const handleNewMessage = () => {
-      // Refetch to get proper user data
+    const handleNewMessage = (payload?: MessageNewEventPayload) => {
+      if (payload?.roomId && payload.roomId !== room.id) return;
+      if (payload?.message) {
+        void upsertMessage({ ...payload.message, pending: false });
+        if (payload.message.userId !== user.id) {
+          socket.emit('message:read', { roomId: room.id, messageId: payload.message.id });
+        }
+        return;
+      }
       fetch(`/api/messages/${room.id}`)
         .then((res) => res.json())
-        .then((data) => {
-          if (data.messages) setMessages(data.messages);
+        .then(async (data) => {
+          if (data.messages) {
+            const hydrated = await Promise.all((data.messages as Message[]).map((item) => hydrateMessage(item)));
+            setMessages(hydrated);
+          }
         });
+    };
+
+    const handleMessageRead = (payload?: MessageReadEventPayload) => {
+      if (!payload?.messageId || !payload?.userId) {
+        return;
+      }
+      const messageId = payload.messageId;
+      const userId = payload.userId;
+      const readBy = payload.readBy;
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === messageId
+            ? { ...item, readBy: readBy || mergeReadBy(item.readBy, userId) }
+            : item
+        )
+      );
     };
 
     const handleTyping = (username: string) => {
@@ -139,56 +316,149 @@ export default function ChatView({
     };
 
     socket.on('message:new', handleNewMessage);
+    socket.on('message:read', handleMessageRead);
     socket.on('message:typing', handleTyping);
 
-    // Join room
     socket.emit('room:join', room.id);
 
     return () => {
       socket.off('message:new', handleNewMessage);
+      socket.off('message:read', handleMessageRead);
       socket.off('message:typing', handleTyping);
       socket.emit('room:leave', room.id);
     };
-  }, [room.id, user.username]);
+  }, [room.id, user.id, user.username, upsertMessage, hydrateMessage]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Send message
+  useEffect(() => {
+    if (messages.length === 0) {
+      return;
+    }
+    const socket = getSocket();
+    const pendingAcks: Array<{ roomId: string; messageId: string }> = [];
+    for (const message of messages) {
+      if (message.userId === user.id) {
+        continue;
+      }
+      if (seenMessagesRef.current.has(message.id)) {
+        continue;
+      }
+      seenMessagesRef.current.add(message.id);
+      pendingAcks.push({ roomId: room.id, messageId: message.id });
+    }
+    if (pendingAcks.length > 0) {
+      for (const payload of pendingAcks) {
+        socket.emit('message:read', payload);
+      }
+    }
+  }, [messages, room.id, user.id]);
+
   const sendMessage = async (e: FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return;
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+    const passphrase = roomPassphraseRef.current.trim();
+    let outgoingText = trimmedText;
+    if (passphrase) {
+      try {
+        outgoingText = await encryptHushMessage(trimmedText, passphrase, room.id);
+      } catch (error) {
+        console.error('Failed to encrypt message:', error);
+        alert('Encryption failed. Message was not sent.');
+        return;
+      }
+    }
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      text: outgoingText,
+      decryptedText: trimmedText,
+      encryptedTextState: 'plain',
+      fileUrl: null,
+      fileName: null,
+      mimeType: null,
+      messageType: 'text',
+      userId: user.id,
+      createdAt: new Date().toISOString(),
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+      },
+      replyTo: replyingTo
+        ? {
+            id: replyingTo.id,
+            text: replyingTo.text,
+            decryptedText: replyingTo.decryptedText ?? replyingTo.text,
+            encryptedTextState: replyingTo.encryptedTextState || 'plain',
+            fileUrl: replyingTo.fileUrl,
+            fileName: replyingTo.fileName || null,
+            mimeType: replyingTo.mimeType || null,
+            user: replyingTo.user,
+          }
+        : null,
+      pending: true,
+    };
+
+    void upsertMessage(optimisticMessage);
+    setSendInputBurst(true);
+    setTimeout(() => setSendInputBurst(false), 220);
+    setText('');
+    setReplyingTo(null);
 
     try {
-      await fetch(`/api/messages/${room.id}`, {
+      const response = await fetch(`/api/messages/${room.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          text: text.trim(),
-          replyToId: replyingTo?.id || null,
+          text: outgoingText,
+          replyToId: optimisticMessage.replyTo?.id || null,
         }),
       });
-
-      // Emit via socket for realtime
-      const socket = getSocket();
-      socket.emit('message:send', { roomId: room.id, text: text.trim() });
-
-      setText('');
-      setReplyingTo(null);
+      const data = await response.json();
+      if (!response.ok || !data.message) {
+        throw new Error('Failed to send message');
+      }
+      await replaceTempMessage(tempId, data.message as Message);
     } catch (err) {
+      setMessages((prev) => prev.filter((message) => message.id !== tempId));
+      setText(trimmedText);
       console.error('Failed to send message:', err);
     }
   };
 
-  // Handle typing indicator
+  const handleEncryptionToggle = () => {
+    const current = roomPassphraseRef.current;
+    const nextValue = window.prompt('Set room encryption key. Leave empty to disable.', current);
+    if (nextValue === null) {
+      return;
+    }
+    const trimmed = nextValue.trim();
+    const storageKey = `felfel:hush:${room.id}`;
+    if (!trimmed) {
+      sessionStorage.removeItem(storageKey);
+      roomPassphraseRef.current = '';
+      setRoomPassphrase('');
+      return;
+    }
+    if (trimmed.length < 6) {
+      alert('Encryption key must be at least 6 characters.');
+      return;
+    }
+    sessionStorage.setItem(storageKey, trimmed);
+    roomPassphraseRef.current = trimmed;
+    setRoomPassphrase(trimmed);
+  };
+
   const handleTyping = () => {
     const socket = getSocket();
     socket.emit('message:typing', room.id);
   };
 
-  // Upload file
   const handleFileUpload = async (file: File) => {
     setUploading(true);
     try {
@@ -217,21 +487,22 @@ export default function ChatView({
       if (uploadData.fileUrl) {
         const messageData = {
           fileUrl: uploadData.fileUrl,
-          fileName: file.name, // Original filename
+          fileName: file.name,
           fileSize: uploadData.fileSize,
-          mimeType, // Send MIME type to server
+          mimeType,
         };
         
         console.log('💬 Sending message:', messageData);
         
-        await fetch(`/api/messages/${room.id}`, {
+        const messageRes = await fetch(`/api/messages/${room.id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(messageData),
         });
-
-        const socket = getSocket();
-        socket.emit('message:send', { roomId: room.id, text: `📎 ${uploadData.fileName}` });
+        const messageJson = await messageRes.json();
+        if (messageRes.ok && messageJson.message) {
+          void upsertMessage(messageJson.message as Message);
+        }
       }
     } catch (err) {
       console.error('Upload failed:', err);
@@ -245,7 +516,7 @@ export default function ChatView({
 
   const handleStickerSelect = async (stickerId: string, stickerUrl: string) => {
     try {
-      await fetch(`/api/messages/${room.id}`, {
+      const res = await fetch(`/api/messages/${room.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -255,14 +526,10 @@ export default function ChatView({
           replyToId: replyingTo?.id || null,
         }),
       });
-
-      // Emit via socket for realtime
-      const socket = getSocket();
-      socket.emit('message:send', { 
-        roomId: room.id, 
-        fileUrl: stickerUrl,
-        messageType: 'sticker',
-      });
+      const data = await res.json();
+      if (res.ok && data.message) {
+        void upsertMessage(data.message as Message);
+      }
 
       setReplyingTo(null);
     } catch (error) {
@@ -272,7 +539,7 @@ export default function ChatView({
 
   const handleGifSelect = async (gifId: string, gifUrl: string, format: string) => {
     try {
-      await fetch(`/api/messages/${room.id}`, {
+      const res = await fetch(`/api/messages/${room.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -283,14 +550,10 @@ export default function ChatView({
           replyToId: replyingTo?.id || null,
         }),
       });
-
-      // Emit via socket for realtime
-      const socket = getSocket();
-      socket.emit('message:send', { 
-        roomId: room.id, 
-        fileUrl: gifUrl,
-        messageType: 'gif',
-      });
+      const data = await res.json();
+      if (res.ok && data.message) {
+        void upsertMessage(data.message as Message);
+      }
 
       setReplyingTo(null);
     } catch (error) {
@@ -369,20 +632,20 @@ export default function ChatView({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="chat-shell">
       {/* Chat Header */}
-      <div style={{
-        height: 'var(--header-height)',
-        padding: '0 20px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: '1px solid var(--bg-tertiary)',
-        background: 'var(--bg-secondary)',
-      }}>
+      <div
+        className="chat-header"
+        style={{
+          padding: '0 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button className="btn btn-ghost btn-icon btn-sm" onClick={onToggleSidebar}>
-            ☰
+            <AppIcon name="menu" size={18} />
           </button>
           
           {/* Room avatar/icon - clickable for groups */}
@@ -414,7 +677,7 @@ export default function ChatView({
                 className="avatar"
                 style={{ background: getAvatarColor(roomDisplayName) }}
               >
-                {room.type === 'CHANNEL' ? '📢' : room.type === 'GROUP' ? '👥' : roomDisplayName.charAt(0).toUpperCase()}
+                {room.type === 'CHANNEL' ? <AppIcon name="channel" size={20} /> : room.type === 'GROUP' ? <AppIcon name="group" size={20} /> : roomDisplayName.charAt(0).toUpperCase()}
               </div>
             )}
             <div>
@@ -435,6 +698,14 @@ export default function ChatView({
         </div>
 
         <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            className="btn btn-ghost btn-icon btn-sm"
+            onClick={handleEncryptionToggle}
+            title={roomPassphrase ? 'Encryption enabled' : 'Enable encryption'}
+            style={{ color: roomPassphrase ? 'var(--accent)' : undefined }}
+          >
+            <AppIcon name="lock" size={16} />
+          </button>
           {/* Room photo upload (superAdmin only, for groups/channels) */}
           {user.isSuperAdmin && room.type !== 'PRIVATE' && (
             <div>
@@ -451,7 +722,7 @@ export default function ChatView({
                 disabled={uploadingRoomPhoto}
                 title={t('room.uploadPhoto')}
               >
-                {uploadingRoomPhoto ? '⏳' : '📷'}
+                {uploadingRoomPhoto ? <div className="spinner" style={{ width: 16, height: 16 }} /> : <AppIcon name="camera" size={16} />}
               </button>
               {room.profilePhotoUrl && (
                 <button
@@ -460,7 +731,7 @@ export default function ChatView({
                   title={t('room.removePhoto')}
                   style={{ color: 'var(--error)' }}
                 >
-                  🗑️
+                  <AppIcon name="trash" size={16} />
                 </button>
               )}
             </div>
@@ -473,24 +744,29 @@ export default function ChatView({
               onClick={() => onStartCall(otherUser.id, otherUser.displayName || otherUser.username)}
               title={t('call.voice')}
             >
-              📞
+              <AppIcon name="phone" size={18} />
             </button>
           )}
         </div>
       </div>
 
       {/* Messages Area */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}>
+      <div className="chat-messages" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-            <div className="spinner" />
+          <div style={{ display: 'grid', gap: 10, padding: 8 }}>
+            {Array.from({ length: 10 }).map((_, index) => (
+              <div
+                key={`msg-skeleton-${index}`}
+                style={{
+                  alignSelf: index % 3 === 0 ? 'flex-end' : 'flex-start',
+                  width: `${36 + ((index * 9) % 28)}%`,
+                  minWidth: 120,
+                  height: 36,
+                  borderRadius: 14,
+                  background: index % 3 === 0 ? 'rgba(255, 104, 58, 0.26)' : 'rgba(255, 146, 108, 0.16)',
+                }}
+              />
+            ))}
           </div>
         ) : messages.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--fg-muted)', padding: 40, fontSize: 14 }}>
@@ -503,17 +779,33 @@ export default function ChatView({
               const nextMsg = messages[idx + 1];
               const showAvatar = !nextMsg || nextMsg.userId !== msg.userId;
               const isFirstInGroup = !prevMsg || prevMsg.userId !== msg.userId;
+              const isEntering = animatingMessageIds.has(msg.id);
+              const isPending = Boolean(msg.pending);
+              const messageText = msg.decryptedText ?? null;
+              const hasDisplayText = Boolean(messageText);
+              const encryptedState = msg.encryptedTextState || 'plain';
+              const showEncryptedPlaceholder = Boolean(msg.text) && encryptedState !== 'plain' && !hasDisplayText;
+              const encryptedPlaceholderText = encryptedState === 'failed'
+                ? 'Encrypted message (failed to decrypt)'
+                : 'Encrypted message';
+              const replyText = msg.replyTo?.decryptedText ?? msg.replyTo?.text ?? null;
+              const replyHasPlaceholder = Boolean(msg.replyTo?.text) && (msg.replyTo?.encryptedTextState || 'plain') !== 'plain' && !replyText;
+              const replyPreviewText = replyText || (replyHasPlaceholder ? 'Encrypted message' : null);
+              const readByUsers = splitReadBy(msg.readBy);
+              const isReadByPeer = otherUser ? readByUsers.includes(otherUser.id) : readByUsers.length > 0;
+              const ownStatusText = isPending ? '...' : isReadByPeer ? '✓✓' : '✓';
+              const ownStatusColor = isPending ? 'rgba(255,255,255,0.5)' : isReadByPeer ? '#9be2b3' : 'rgba(255,255,255,0.72)';
 
               return (
                 <div
                   key={msg.id}
+                  className={isEntering ? 'chat-message-enter' : undefined}
                   style={{
                     display: 'flex',
                     flexDirection: isOwn ? (dir === 'rtl' ? 'row' : 'row-reverse') : (dir === 'rtl' ? 'row-reverse' : 'row'),
                   alignItems: 'flex-end',
                   gap: 8,
                   marginTop: isFirstInGroup ? 12 : 2,
-                  animation: 'fadeIn 0.2s ease',
                 }}
               >
                 {/* Avatar (side) - clickable */}
@@ -558,17 +850,20 @@ export default function ChatView({
                   }}
                 >
                   <div
+                    className={isPending ? 'chat-message-pending' : undefined}
                     style={{
                       padding: '10px 14px',
                       borderRadius: isOwn
                         ? dir === 'rtl' ? '16px 4px 16px 16px' : '4px 16px 16px 16px'
                         : dir === 'rtl' ? '4px 16px 16px 16px' : '16px 4px 16px 16px',
                       background: isOwn
-                        ? 'linear-gradient(135deg, #e84545, #c03030)'
-                        : 'var(--bg-secondary)',
-                      color: isOwn ? '#fff' : 'var(--fg)',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                        ? 'var(--bubble-own)'
+                        : 'var(--bubble-other)',
+                      color: isOwn ? 'var(--bubble-own-text)' : 'var(--bubble-other-text)',
+                      boxShadow: '0 8px 18px rgba(0,0,0,0.14)',
                       wordBreak: 'break-word',
+                      opacity: isPending ? 0.75 : 1,
+                      filter: isPending ? 'saturate(0.8)' : 'none',
                     }}
                   >
                     {/* Sender name (only in groups, for others' messages) */}
@@ -614,7 +909,7 @@ export default function ChatView({
                           {t('chat.replyTo')} {msg.replyTo.user.displayName || msg.replyTo.user.username}
                         </div>
                         <div style={{ opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {msg.replyTo.text || (msg.replyTo.fileUrl ? '📎 ' + t('chat.attachFile') : '...')}
+                          {replyPreviewText || (msg.replyTo.fileUrl ? t('chat.attachFile') : '...')}
                         </div>
                       </div>
                     )}
@@ -628,7 +923,7 @@ export default function ChatView({
                       // Sticker rendering
                       if (msgType === 'sticker') {
                         return (
-                          <div style={{ marginBottom: msg.text ? 8 : 0 }}>
+                          <div style={{ marginBottom: hasDisplayText || showEncryptedPlaceholder ? 8 : 0 }}>
                             <Image
                               src={fileUrl}
                               alt="Sticker"
@@ -650,7 +945,7 @@ export default function ChatView({
                       // GIF rendering
                       if (msgType === 'gif') {
                         return (
-                          <div style={{ marginBottom: msg.text ? 8 : 0 }}>
+                          <div style={{ marginBottom: hasDisplayText || showEncryptedPlaceholder ? 8 : 0 }}>
                             {mimeType === 'video/mp4' ? (
                               <video
                                 src={fileUrl}
@@ -695,7 +990,7 @@ export default function ChatView({
                       
                       if (isImage) {
                         return (
-                          <div style={{ marginBottom: msg.text ? 8 : 0 }}>
+                          <div style={{ marginBottom: hasDisplayText || showEncryptedPlaceholder ? 8 : 0 }}>
                             <Image
                               src={fileUrl}
                               alt={fileName}
@@ -724,7 +1019,10 @@ export default function ChatView({
                               }}
                             />
                             <div style={{ fontSize: 11, color: isOwn ? 'rgba(255,255,255,0.7)' : 'var(--fg-muted)', marginTop: 4 }}>
-                              🖼️ Image • Click to view
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <AppIcon name="image" size={16} />
+                                <span>Image • Click to view</span>
+                              </span>
                             </div>
                           </div>
                         );
@@ -732,9 +1030,9 @@ export default function ChatView({
                       
                       if (isAudio) {
                         return (
-                          <div style={{ marginBottom: msg.text ? 8 : 0, minWidth: 280, maxWidth: '100%' }}>
+                          <div style={{ marginBottom: hasDisplayText || showEncryptedPlaceholder ? 8 : 0, minWidth: 280, maxWidth: '100%' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                              <span style={{ fontSize: 20 }}>🎵</span>
+                              <AppIcon name="music" size={20} />
                               <span style={{ 
                                 fontSize: 14, 
                                 fontWeight: 500, 
@@ -769,7 +1067,10 @@ export default function ChatView({
                                 display: 'inline-block',
                               }}
                             >
-                              📥 Download
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <AppIcon name="download" size={15} />
+                                <span>Download</span>
+                              </span>
                             </a>
                           </div>
                         );
@@ -777,7 +1078,7 @@ export default function ChatView({
                       
                       if (isVideo) {
                         return (
-                          <div style={{ marginBottom: msg.text ? 8 : 0 }}>
+                          <div style={{ marginBottom: hasDisplayText || showEncryptedPlaceholder ? 8 : 0 }}>
                             <video
                               controls
                               style={{
@@ -794,7 +1095,10 @@ export default function ChatView({
                               Your browser does not support video playback.
                             </video>
                             <div style={{ fontSize: 11, color: isOwn ? 'rgba(255,255,255,0.7)' : 'var(--fg-muted)', marginTop: 4 }}>
-                              🎥 Video
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <AppIcon name="video" size={16} />
+                                <span>Video</span>
+                              </span>
                             </div>
                           </div>
                         );
@@ -816,7 +1120,7 @@ export default function ChatView({
                             borderRadius: 8,
                             textDecoration: 'none',
                             color: isOwn ? '#fff' : 'var(--fg)',
-                            marginBottom: msg.text ? 8 : 0,
+                            marginBottom: hasDisplayText || showEncryptedPlaceholder ? 8 : 0,
                             transition: 'background 0.15s',
                           }}
                           onMouseEnter={(e) => {
@@ -837,7 +1141,7 @@ export default function ChatView({
                             fontSize: 18,
                             flexShrink: 0,
                           }}>
-                            📎
+                            <AppIcon name="paperclip" size={16} />
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 500, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -852,14 +1156,20 @@ export default function ChatView({
                     })()}
 
                     {/* Text */}
-                    {msg.text && !msg.fileUrl && (
+                    {hasDisplayText && !msg.fileUrl && (
                       <div style={{ fontSize: 14, wordBreak: 'break-word', lineHeight: 1.5 }}>
-                        {msg.text}
+                        {messageText}
                       </div>
                     )}
-                    {msg.text && msg.fileUrl && (
+                    {hasDisplayText && msg.fileUrl && (
                       <div style={{ fontSize: 13, opacity: 0.8, wordBreak: 'break-word' }}>
-                        {msg.text}
+                        {messageText}
+                      </div>
+                    )}
+                    {showEncryptedPlaceholder && (
+                      <div style={{ fontSize: 13, opacity: 0.8, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <AppIcon name="lock" size={14} />
+                        <span>{encryptedPlaceholderText}</span>
                       </div>
                     )}
 
@@ -871,6 +1181,11 @@ export default function ChatView({
                       textAlign: isOwn ? 'start' : 'end',
                     }}>
                       {formatTime(msg.createdAt)}
+                      {isOwn && (
+                        <span style={{ marginInlineStart: 6, letterSpacing: 0.4, color: ownStatusColor }}>
+                          {ownStatusText}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -921,7 +1236,7 @@ export default function ChatView({
                   {t('chat.replyTo')} {replyingTo.user.displayName || replyingTo.user.username}
                 </div>
                 <div style={{ fontSize: 13, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {replyingTo.text || (replyingTo.fileUrl ? '📎 ' + t('chat.attachFile') : '...')}
+                  {replyingTo.decryptedText || replyingTo.text || (replyingTo.fileUrl ? t('chat.attachFile') : '...')}
                 </div>
               </div>
               <button
@@ -929,20 +1244,22 @@ export default function ChatView({
                 className="btn btn-ghost btn-sm"
                 onClick={() => setReplyingTo(null)}
               >
-                ✕ {t('chat.cancelReply')}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <AppIcon name="close" size={14} />
+                  <span>{t('chat.cancelReply')}</span>
+                </span>
               </button>
             </div>
           )}
 
         <form
           onSubmit={sendMessage}
+          className="chat-composer"
           style={{
             padding: '12px 20px',
-            borderTop: '1px solid var(--bg-tertiary)',
             display: 'flex',
             alignItems: 'center',
             gap: 8,
-            background: 'var(--bg-secondary)',
           }}
         >
           {/* File upload */}
@@ -963,7 +1280,7 @@ export default function ChatView({
             disabled={uploading}
             title={t('chat.attachFile')}
           >
-            {uploading ? <div className="spinner" style={{ width: 18, height: 18 }} /> : '📎'}
+            {uploading ? <div className="spinner" style={{ width: 18, height: 18 }} /> : <AppIcon name="paperclip" size={18} />}
           </button>
 
           {/* Emoji/Sticker/GIF Picker Button */}
@@ -974,7 +1291,7 @@ export default function ChatView({
               onClick={() => setShowPicker(!showPicker)}
               title="Emoji / Sticker / GIF"
             >
-              😊
+              <AppIcon name="emoji" size={18} />
             </button>
             
             {showPicker && (
@@ -992,8 +1309,16 @@ export default function ChatView({
           {/* Text input */}
           <input
             className="input"
-            style={{ flex: 1 }}
-            placeholder={t('chat.typeMessage')}
+            style={{
+              flex: 1,
+              height: 42,
+              borderRadius: 9999,
+              paddingInline: 16,
+              opacity: sendInputBurst ? 0.55 : 1,
+              transform: sendInputBurst ? 'translateY(1px) scale(0.995)' : 'translateY(0) scale(1)',
+              transition: 'opacity 0.2s ease, transform 0.2s ease',
+            }}
+            placeholder={roomPassphrase ? `${t('chat.typeMessage')} (E2EE)` : t('chat.typeMessage')}
             value={text}
             onChange={(e) => { setText(e.target.value); handleTyping(); }}
             autoComplete="off"
@@ -1006,9 +1331,12 @@ export default function ChatView({
             disabled={!text.trim() && !uploading}
             style={{
               transform: dir === 'rtl' ? 'scaleX(-1)' : 'none',
+              transition: 'transform 0.2s ease',
+              width: 42,
+              height: 42,
             }}
           >
-            ➤
+            <AppIcon name="send" size={18} />
           </button>
         </form>
         </>

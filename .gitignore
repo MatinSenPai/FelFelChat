@@ -52,3 +52,7 @@ public/uploads/
 
 # backups
 backups/
+
+# Agent files
+AGENTS.md
+scripts/convert_logo_assets.py

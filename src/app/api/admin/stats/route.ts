@@ -23,10 +23,10 @@ function getDirSize(dirPath: string): number {
         try {
           const fullPath = path.join(file.parentPath || file.path || dirPath, file.name);
           total += statSync(fullPath).size;
-        } catch { /* skip */ }
+        } catch {}
       }
     }
-  } catch { /* skip */ }
+  } catch {}
   return total;
 }
 
@@ -41,15 +41,14 @@ export async function GET(req: NextRequest) {
       prisma.room.count(),
     ]);
 
-    // DB file size
-    const dbPath = path.resolve(process.cwd(), 'prisma/dev.db');
-    const dbSize = existsSync(dbPath) ? statSync(dbPath).size : 0;
+    const dbStatsRaw = await prisma.$runCommandRaw({ dbStats: 1 });
+    const dbStats = dbStatsRaw as Record<string, unknown>;
+    const dbSizeCandidate = dbStats.storageSize ?? dbStats.dataSize ?? dbStats.totalSize ?? 0;
+    const dbSize = Number(typeof dbSizeCandidate === 'number' ? dbSizeCandidate : 0);
 
-    // Uploads size
     const uploadsDir = process.env.UPLOAD_DIR || './uploads';
     const uploadsSize = getDirSize(uploadsDir);
 
-    // Free disk space
     let freeSpace = 0;
     try {
       const dfOutput = execSync('df -B1 . | tail -1').toString().trim();
@@ -63,11 +62,11 @@ export async function GET(req: NextRequest) {
       totalUsers,
       totalMessages,
       totalRooms,
-      onlineUsers: 0, // Will be updated via socket
+      onlineUsers: 0,
       dbSize: formatBytes(dbSize),
       uploadsSize: formatBytes(uploadsSize),
       freeSpace: formatBytes(freeSpace),
-      activeCall: null, // Will be updated via socket
+      activeCall: null,
     });
   } catch (error) {
     console.error('Admin stats error:', error);

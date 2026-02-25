@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import AppIcon from './AppIcon';
 
 interface User {
   id: string;
@@ -141,7 +142,10 @@ export default function UserProfileModal({ userId, onClose, onStartChat }: UserP
                     onClose();
                   }}
                 >
-                  💬 Start Chat
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <AppIcon name="chat" size={16} />
+                    <span>Start Chat</span>
+                  </span>
                 </button>
               )}
               <button className="btn btn-ghost" onClick={onClose}>

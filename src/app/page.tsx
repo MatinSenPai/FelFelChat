@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useI18n } from '@/components/providers/I18nProvider';
 import { connectSocket, disconnectSocket, getSocket } from '@/lib/socket';
 import Sidebar from '@/components/Sidebar';
 import ChatView from '@/components/ChatView';
 import VoiceCall from '@/components/VoiceCall';
+import Image from 'next/image';
 
 interface Room {
   id: string;
@@ -27,6 +28,19 @@ interface CallState {
   calleeName?: string;
 }
 
+interface MessageNewPayload {
+  roomId?: string;
+  message?: {
+    id: string;
+    userId: string;
+    text?: string | null;
+    fileUrl?: string | null;
+    createdAt?: string;
+    user?: { username?: string };
+    username?: string;
+  };
+}
+
 export default function ChatPage() {
   const { user, loading, logout } = useAuth();
   const { t, locale, setLocale, dir } = useI18n();
@@ -34,23 +48,48 @@ export default function ChatPage() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [roomsLoading, setRoomsLoading] = useState(true);
+  const [unreadByRoom, setUnreadByRoom] = useState<Record<string, number>>({});
   const [callState, setCallState] = useState<CallState>({ status: 'idle' });
+  const roomsRef = useRef<Room[]>([]);
+  const brandLogoSrc = '/favicon.ico';
 
   // Close sidebar on mobile when clicking outside
   const closeSidebarOnMobile = () => {
-    if (window.innerWidth < 768) {
+    if (isMobile) {
       setSidebarOpen(false);
     }
   };
 
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
+
+  useEffect(() => {
+    const updateViewport = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setSidebarOpen(true);
+      }
+    };
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    return () => window.removeEventListener('resize', updateViewport);
+  }, []);
+
   // Fetch rooms
   const fetchRooms = useCallback(async () => {
+    setRoomsLoading(true);
     try {
       const res = await fetch('/api/rooms');
       const data = await res.json();
       if (data.rooms) setRooms(data.rooms);
     } catch (err) {
       console.error('Failed to fetch rooms:', err);
+    } finally {
+      setRoomsLoading(false);
     }
   }, []);
 
@@ -60,39 +99,86 @@ export default function ChatPage() {
 
     const socket = connectSocket();
 
-    socket.on('user:online', (userId: string) => {
+    const handleUserOnline = (userId: string) => {
       setOnlineUsers((prev) => new Set(prev).add(userId));
-    });
+    };
 
-    socket.on('user:offline', (userId: string) => {
+    const handleUserOffline = (userId: string) => {
       setOnlineUsers((prev) => {
         const next = new Set(prev);
         next.delete(userId);
         return next;
       });
-    });
+    };
 
-    socket.on('message:new', () => {
-      fetchRooms(); // refresh room list for latest message
-    });
+    const handleMessageNew = (payload?: MessageNewPayload) => {
+      if (payload?.roomId && payload?.message && payload.message.userId !== user.id && payload.roomId !== activeRoomId) {
+        const roomId = payload.roomId;
+        setUnreadByRoom((prev) => ({
+          ...prev,
+          [roomId]: (prev[roomId] || 0) + 1,
+        }));
+      }
+      if (!payload?.roomId || !payload.message) {
+        return;
+      }
+      const roomId = payload.roomId;
+      const message = payload.message;
+      const roomExists = roomsRef.current.some((room) => room.id === roomId);
+      if (!roomExists) {
+        void fetchRooms();
+        return;
+      }
+      setRooms((prev) => {
+        const roomIndex = prev.findIndex((room) => room.id === roomId);
+        if (roomIndex < 0) {
+          return prev;
+        }
+        const room = prev[roomIndex];
+        const username = message.user?.username || message.username || room.messages[0]?.user.username || 'system';
+        const previewText = message.text ?? null;
+        const previewCreatedAt = message.createdAt || new Date().toISOString();
+        const updatedRoom: Room = {
+          ...room,
+          messages: [{ text: previewText, user: { username }, createdAt: previewCreatedAt }],
+          _count: room._count,
+        };
+        const next = [...prev];
+        next.splice(roomIndex, 1);
+        next.unshift(updatedRoom);
+        return next;
+      });
+    };
 
-    // Call events
-    socket.on('call:incoming', ({ callerId, callerName, logId }: { callerId: string; callerName: string; logId: string }) => {
+    const handleRoomNew = () => {
+      void fetchRooms();
+    };
+
+    const handleCallIncoming = ({ callerId, callerName, logId }: { callerId: string; callerName: string; logId: string }) => {
       setCallState({ status: 'incoming', callerId, callerName, logId });
-    });
+    };
 
-    socket.on('call:accepted', ({ logId }: { logId: string }) => {
+    const handleCallAccepted = ({ logId }: { logId: string }) => {
       setCallState((prev) => ({ ...prev, status: 'active', logId }));
-    });
+    };
 
-    socket.on('call:ended', () => {
+    const handleCallEnded = () => {
       setCallState({ status: 'idle' });
-    });
+    };
 
-    socket.on('call:error', (msg: string) => {
+    const handleCallError = (msg: string) => {
       alert(msg);
       setCallState({ status: 'idle' });
-    });
+    };
+
+    socket.on('user:online', handleUserOnline);
+    socket.on('user:offline', handleUserOffline);
+    socket.on('message:new', handleMessageNew);
+    socket.on('room:new', handleRoomNew);
+    socket.on('call:incoming', handleCallIncoming);
+    socket.on('call:accepted', handleCallAccepted);
+    socket.on('call:ended', handleCallEnded);
+    socket.on('call:error', handleCallError);
 
     const initialFetchTimer = setTimeout(() => {
       void fetchRooms();
@@ -100,9 +186,17 @@ export default function ChatPage() {
 
     return () => {
       clearTimeout(initialFetchTimer);
+      socket.off('user:online', handleUserOnline);
+      socket.off('user:offline', handleUserOffline);
+      socket.off('message:new', handleMessageNew);
+      socket.off('room:new', handleRoomNew);
+      socket.off('call:incoming', handleCallIncoming);
+      socket.off('call:accepted', handleCallAccepted);
+      socket.off('call:ended', handleCallEnded);
+      socket.off('call:error', handleCallError);
       disconnectSocket();
     };
-  }, [user, fetchRooms]);
+  }, [user, fetchRooms, activeRoomId]);
 
   // Start a call
   const startCall = useCallback((calleeId: string, calleeName: string) => {
@@ -154,43 +248,42 @@ export default function ChatPage() {
     return other?.user.displayName || other?.user.username || room.name;
   };
 
+  const selectRoom = (roomId: string) => {
+    setActiveRoomId(roomId);
+    setUnreadByRoom((prev) => {
+      if (!prev[roomId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[roomId];
+      return next;
+    });
+    closeSidebarOnMobile();
+  };
+
   return (
-    <div style={{ display: 'flex', height: '100vh', direction: dir, position: 'relative' }}>
+    <div className="app-shell" style={{ direction: dir }}>
       {/* Backdrop overlay for mobile */}
-      {sidebarOpen && (
+      {sidebarOpen && isMobile && (
         <div
           onClick={closeSidebarOnMobile}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 98,
-            display: window.innerWidth < 768 ? 'block' : 'none',
-          }}
+          className="app-backdrop"
         />
       )}
 
       {/* Sidebar */}
       <div
+        className="app-sidebar-shell"
         style={{
-          width: sidebarOpen ? 'var(--sidebar-width)' : 0,
-          minWidth: sidebarOpen ? 'var(--sidebar-width)' : 0,
-          borderInlineEnd: '1px solid var(--bg-tertiary)',
-          transition: 'all 0.3s ease',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          background: 'var(--bg-secondary)',
-          position: window.innerWidth < 768 ? 'fixed' : 'relative',
+          width: sidebarOpen || !isMobile ? 'var(--sidebar-width)' : 0,
+          minWidth: sidebarOpen || !isMobile ? 'var(--sidebar-width)' : 0,
+          position: isMobile ? 'fixed' : 'relative',
           top: 0,
           left: dir === 'rtl' ? 'auto' : 0,
           right: dir === 'rtl' ? 0 : 'auto',
           height: '100vh',
           zIndex: 99,
-          transform: window.innerWidth < 768 && !sidebarOpen 
+          transform: isMobile && !sidebarOpen 
             ? (dir === 'rtl' ? 'translateX(100%)' : 'translateX(-100%)') 
             : 'translateX(0)',
         }}
@@ -198,12 +291,11 @@ export default function ChatPage() {
         <Sidebar
           user={user}
           rooms={rooms}
+          roomsLoading={roomsLoading}
+          unreadByRoom={unreadByRoom}
           activeRoomId={activeRoomId}
           onlineUsers={onlineUsers}
-          onSelectRoom={(id) => {
-            setActiveRoomId(id);
-            closeSidebarOnMobile();
-          }}
+          onSelectRoom={selectRoom}
           onRoomsChange={fetchRooms}
           onLogout={logout}
           t={t}
@@ -214,37 +306,29 @@ export default function ChatPage() {
       </div>
 
       {/* Main Chat Area */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div className="app-main-shell">
         {activeRoom ? (
           <ChatView
             room={activeRoom}
             user={user}
             onlineUsers={onlineUsers}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
             onStartCall={startCall}
             t={t}
             dir={dir}
             roomDisplayName={getPrivateRoomName(activeRoom)}
           />
         ) : (
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--fg-muted)',
-            gap: 16,
-          }}>
-            <div style={{ fontSize: 64 }}>🌶️</div>
-            <h2 style={{
-              background: 'var(--accent-gradient)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}>
-              {t('app.name')}
-            </h2>
+          <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--fg-muted)' }}>
+            <div className="card glass" style={{ width: 'min(440px, calc(100vw - 48px))', minHeight: 420, textAlign: 'center', display: 'grid', gap: 14, justifyItems: 'center', alignContent: 'center' }}>
+            <Image
+              src={brandLogoSrc}
+              alt={t('app.name')}
+              width={280}
+              height={84}
+              unoptimized
+              style={{ width: 'min(280px, 72vw)', height: 'auto', objectFit: 'contain' }}
+            />
             <p>{t('chat.selectChat')}</p>
             {/* Mobile: show sidebar button */}
             {!sidebarOpen && (
@@ -252,6 +336,7 @@ export default function ChatPage() {
                 {t('chat.rooms')}
               </button>
             )}
+            </div>
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import path from 'path';
 import { requireSuperAdmin } from '@/lib/routeAuth';
@@ -29,7 +29,22 @@ function getMetaFilename(filename: string): string {
   return `${filename}.meta.json`;
 }
 
-// GET — list backups
+function getDatabaseUrl(): string {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL is not set');
+  }
+  return databaseUrl;
+}
+
+function runMongoTool(binary: string, args: string[]): void {
+  try {
+    execFileSync(binary, args, { stdio: 'pipe' });
+  } catch (error) {
+    throw new Error(`${binary} failed: ${String(error)}`);
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const auth = requireSuperAdmin(req);
@@ -42,7 +57,7 @@ export async function GET(req: NextRequest) {
     }
 
     const files = readdirSync(backupDir)
-      .filter((f) => f.endsWith('.tar.gz') || f.endsWith('.sqlite'))
+      .filter((f) => f.endsWith('.archive.gz') || f.endsWith('.tar.gz'))
       .map((filename) => {
         const filePath = path.join(backupDir, filename);
         const metaPath = path.join(backupDir, getMetaFilename(filename));
@@ -57,7 +72,6 @@ export async function GET(req: NextRequest) {
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    // Also get BackupLog entries
     const logs = await prisma.backupLog.findMany({
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -71,7 +85,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST — create/restore/delete backup
 export async function POST(req: NextRequest) {
   try {
     const auth = requireSuperAdmin(req);
@@ -79,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     const { action, filename, note } = await req.json();
     const backupDir = path.resolve(process.env.BACKUP_DIR || './backups');
-    const dbPath = path.resolve(process.cwd(), 'prisma/dev.db');
+    const databaseUrl = getDatabaseUrl();
 
     if (!existsSync(backupDir)) {
       mkdirSync(backupDir, { recursive: true });
@@ -88,12 +101,11 @@ export async function POST(req: NextRequest) {
     switch (action) {
       case 'create': {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const backupFilename = `felfel-backup-${timestamp}.sqlite`;
+        const backupFilename = `felfel-backup-${timestamp}.archive.gz`;
         const backupPath = path.join(backupDir, backupFilename);
         const metaPath = path.join(backupDir, getMetaFilename(backupFilename));
 
-        // VACUUM INTO creates a clean copy
-        await prisma.$executeRawUnsafe(`VACUUM INTO '${backupPath}'`);
+        runMongoTool('mongodump', [`--uri=${databaseUrl}`, `--archive=${backupPath}`, '--gzip']);
 
         const stat = statSync(backupPath);
         const signature = await createBackupSignature(backupPath, backupFilename);
@@ -142,17 +154,11 @@ export async function POST(req: NextRequest) {
 
         await verifyBackupSignature(restorePath, restoreMetaPath, filename);
 
-        // Safety: create a backup before restore
-        const safetyName = `pre-restore-${Date.now()}.sqlite`;
+        const safetyName = `pre-restore-${Date.now()}.archive.gz`;
         try {
-          await prisma.$executeRawUnsafe(`VACUUM INTO '${path.join(backupDir, safetyName)}'`);
-        } catch { /* skip safety backup if fails */ }
-
-        // Disconnect Prisma
-        await prisma.$disconnect();
-
-        // Copy backup over current DB
-        execSync(`cp "${restorePath}" "${dbPath}"`);
+          runMongoTool('mongodump', [`--uri=${databaseUrl}`, `--archive=${path.join(backupDir, safetyName)}`, '--gzip']);
+        } catch {}
+        runMongoTool('mongorestore', [`--uri=${databaseUrl}`, `--archive=${restorePath}`, '--gzip', '--drop']);
 
         await logAdminAction(req, {
           adminUserId: auth.user.id,
@@ -179,7 +185,6 @@ export async function POST(req: NextRequest) {
           unlinkSync(deleteMetaPath);
         }
 
-        // Remove from BackupLog
         await prisma.backupLog.deleteMany({ where: { filename } });
 
         await logAdminAction(req, {

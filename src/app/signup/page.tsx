@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
+import AppIcon from '@/components/AppIcon';
 
 export default function SignupPage() {
   const { signup } = useAuth();
@@ -163,7 +164,9 @@ export default function SignupPage() {
 
         {/* Logo & Title */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🌶️</div>
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+            <AppIcon name="logo" size={48} style={{ color: '#fff' }} />
+          </div>
           <h1
             style={{
               fontSize: 32,
@@ -193,7 +196,9 @@ export default function SignupPage() {
                 marginBottom: 24,
               }}
             >
-              <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
+              <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+                <AppIcon name="lock" size={40} style={{ color: '#fff' }} />
+              </div>
               <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginBottom: 8 }}>
                 {t('auth.registrationDisabledTitle') || 'Registration Closed'}
               </div>
@@ -218,7 +223,10 @@ export default function SignupPage() {
                 transition: 'all 0.3s ease',
               }}
             >
-              ← {t('auth.backToLogin') || 'Back to Login'}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <AppIcon name="arrowLeft" size={16} style={{ color: '#fff' }} />
+                <span>{t('auth.backToLogin') || 'Back to Login'}</span>
+              </span>
             </Link>
           </>
         ) : (

@@ -65,18 +65,31 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    const isHttps = (process.env.APP_ORIGIN || '').startsWith('https');
     response.cookies.set('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       path: '/',
     });
 
     return response;
   } catch (error) {
-    logError('api.auth.signup.error', { error: String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    logError('api.auth.signup.error', { error: message, stack });
     captureServerException(error, { route: '/api/auth/signup' });
-    return NextResponse.json({ error: 'serverError' }, { status: 500 });
+    const includeDebug = process.env.NODE_ENV !== 'production' || process.env.FELFEL_DEBUG_ERRORS === '1';
+    let errorCode = 'serverError';
+    if (message.includes('JWT_SECRET')) {
+      errorCode = 'jwtSecretMissing';
+    } else if (message.includes('Prisma') || message.includes('Mongo') || message.includes('P10')) {
+      errorCode = 'databaseError';
+    }
+    return NextResponse.json(
+      includeDebug ? { error: errorCode, debug: message } : { error: errorCode },
+      { status: 500 }
+    );
   }
 }

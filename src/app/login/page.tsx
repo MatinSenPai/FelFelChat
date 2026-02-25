@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
+import AppIcon from '@/components/AppIcon';
 
 export default function LoginPage() {
   const { t, locale, setLocale, dir } = useI18n();
@@ -10,6 +11,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const parseResponseBody = async (res: Response): Promise<Record<string, unknown>> => {
+    const text = await res.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return { error: 'serverError', debug: text };
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -29,17 +40,25 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json();
+      const data = await parseResponseBody(res);
 
       if (!res.ok) {
-        setError(t(`auth.${data.error}`) || t('common.error'));
+        const apiError = typeof data.error === 'string' ? data.error : 'serverError';
+        const debug = typeof data.debug === 'string' ? data.debug : '';
+        if (debug) {
+          console.error('Login API error:', debug);
+        } else {
+          console.error('Login API error response:', data);
+        }
+        setError(t(`auth.${apiError}`) || t('common.error'));
         setLoading(false);
         return;
       }
 
       // Cookie is set, now reload the page to include it
       window.location.href = '/';
-    } catch {
+    } catch (caught) {
+      console.error('Login request failed:', caught);
       setError(t('common.error'));
       setLoading(false);
     }
@@ -134,7 +153,9 @@ export default function LoginPage() {
 
         {/* Logo & Title */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🌶️</div>
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+            <AppIcon name="logo" size={48} style={{ color: '#fff' }} />
+          </div>
           <h1
             style={{
               fontSize: 32,

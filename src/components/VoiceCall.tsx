@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import AppIcon from './AppIcon';
 
 interface VoiceCallProps {
   status: 'ringing' | 'incoming' | 'active';
@@ -103,7 +104,7 @@ export default function VoiceCall({
               onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
               title={t('call.reject')}
             >
-              ✕
+              <AppIcon name="close" size={24} />
             </button>
             <button
               onClick={onAccept}
@@ -119,7 +120,7 @@ export default function VoiceCall({
               onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
               title={t('call.accept')}
             >
-              📞
+              <AppIcon name="phone" size={26} />
             </button>
           </>
         )}
@@ -139,7 +140,7 @@ export default function VoiceCall({
                 }}
                 title={isMuted ? t('call.unmute') : t('call.mute')}
               >
-                {isMuted ? '🔇' : '🔊'}
+                <AppIcon name={isMuted ? 'micOff' : 'micOn'} size={20} />
               </button>
             )}
             <button
@@ -155,7 +156,7 @@ export default function VoiceCall({
               onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
               title={t('call.end')}
             >
-              ✕
+              <AppIcon name="close" size={24} />
             </button>
           </>
         )}

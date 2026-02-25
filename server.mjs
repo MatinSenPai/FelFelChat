@@ -138,6 +138,7 @@ app.prepare().then(() => {
     pingInterval: 10000,
     pingTimeout: 5000,
   });
+  globalThis.__felfelIo = io;
 
   // Track online users
   const onlineUsers = new Map(); // userId -> socketId
@@ -247,13 +248,36 @@ app.prepare().then(() => {
     socket.on('message:read', async ({ messageId, roomId }) => {
       if (!roomId || typeof roomId !== 'string') return;
       if (!joinedRooms.has(roomId)) return;
+      if (!messageId || typeof messageId !== 'string') return;
 
       const membership = await prisma.roomMember.findUnique({
         where: { userId_roomId: { userId, roomId } },
       });
       if (!membership) return;
 
-      io.to(`room:${roomId}`).emit('message:read', { messageId, userId });
+      try {
+        const message = await prisma.message.findUnique({
+          where: { id: messageId },
+          select: { id: true, roomId: true, readBy: true },
+        });
+        if (!message || message.roomId !== roomId) return;
+        const readByUsers = (message.readBy || '')
+          .split(/[,\s;]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+        const readBySet = new Set(readByUsers);
+        readBySet.add(userId);
+        const nextReadBy = Array.from(readBySet).join(',');
+        if (nextReadBy !== (message.readBy || '')) {
+          await prisma.message.update({
+            where: { id: messageId },
+            data: { readBy: nextReadBy },
+          });
+        }
+        io.to(`room:${roomId}`).emit('message:read', { messageId, userId, readBy: nextReadBy });
+      } catch (error) {
+        log('warn', 'socket.message.read.error', { messageId, roomId, error: error instanceof Error ? error.message : String(error) });
+      }
     });
 
     // --- Voice Calls (1 at a time) ---

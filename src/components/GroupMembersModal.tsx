@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import AppIcon from './AppIcon';
 
 interface Member {
   id: string;
@@ -116,7 +117,7 @@ export default function GroupMembersModal({
             onClick={onClose}
             style={{ fontSize: 20 }}
           >
-            ✕
+            <AppIcon name="close" size={20} />
           </button>
         </div>
 

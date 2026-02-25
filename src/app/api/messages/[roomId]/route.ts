@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
+import { getSocketServer } from '@/lib/socketServer';
 
 // GET /api/messages/[roomId] — paginated messages
 export async function GET(
@@ -88,7 +89,16 @@ export async function POST(
       return NextResponse.json({ error: 'Only superadmin can post in channels' }, { status: 403 });
     }
 
-    const { text, fileUrl, fileName, fileSize, mimeType, messageType, replyToId } = await req.json();
+    const body = await req.json() as {
+      text?: string | null;
+      fileUrl?: string | null;
+      fileName?: string | null;
+      fileSize?: number | null;
+      mimeType?: string | null;
+      messageType?: string | null;
+      replyToId?: string | null;
+    };
+    const { text, fileUrl, fileName, fileSize, mimeType, messageType, replyToId } = body;
 
     // Validate message based on type
     const validMessageTypes = ['text', 'file', 'sticker', 'gif'];
@@ -106,8 +116,9 @@ export async function POST(
       return NextResponse.json({ error: 'Message cannot be empty' }, { status: 400 });
     }
 
-    // Check text length
-    if (text && text.length > 2000) {
+    const isEncryptedEnvelope = typeof text === 'string' && text.startsWith('hush:v1:');
+    const maxTextLength = isEncryptedEnvelope ? 12000 : 2000;
+    if (text && text.length > maxTextLength) {
       return NextResponse.json({ error: 'Message too long' }, { status: 400 });
     }
 
@@ -134,17 +145,34 @@ export async function POST(
         replyToId: replyToId || null,
       },
       include: {
-        user: { select: { id: true, username: true, displayName: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
         replyTo: {
           select: {
             id: true,
             text: true,
             fileUrl: true,
-            user: { select: { id: true, username: true, displayName: true } },
+            fileName: true,
+            mimeType: true,
+            user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
           },
         },
       },
     });
+
+    try {
+      const io = getSocketServer();
+      if (io) {
+        const roomMembers = await prisma.roomMember.findMany({
+          where: { roomId },
+          select: { userId: true },
+        });
+        for (const member of roomMembers) {
+          io.to(`user:${member.userId}`).emit('message:new', { roomId, message });
+        }
+      }
+    } catch (socketError) {
+      console.error('POST /api/messages socket emit error:', socketError);
+    }
 
     return NextResponse.json({ message }, { status: 201 });
   } catch (error) {
