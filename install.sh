@@ -9,7 +9,7 @@ set -euo pipefail
 #   felfel
 
 APP_NAME="FelFel Chat"
-SCRIPT_VERSION="2026.02.25-11"
+SCRIPT_VERSION="2026.02.26-15"
 DEFAULT_SERVICE_NAME="felfelchat"
 DEFAULT_REPO="${GIT_REPO_URL:-${GITHUB_REPO:-https://github.com/MatinSenPai/FelFelChat}}"
 DEFAULT_REF="${GITHUB_REF:-main}"
@@ -768,6 +768,23 @@ list_port_listener_pids() {
   return 1
 }
 
+port_has_listener() {
+  local target_port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn "sport = :${target_port}" 2>/dev/null | awk 'NR>1 {found=1} END {exit found ? 0 : 1}'
+    return $?
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"$target_port" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -ltn 2>/dev/null | awk -v port=":${target_port}" '$4 ~ port "$" {found=1} END {exit found ? 0 : 1}'
+    return $?
+  fi
+  return 1
+}
+
 pid_cmdline_preview() {
   local pid="$1"
   if [[ -r "/proc/${pid}/cmdline" ]]; then
@@ -815,7 +832,14 @@ ensure_port_available_for_app() {
   fi
 
   mapfile -t pids < <(list_port_listener_pids "$target_port" || true)
-  [[ ${#pids[@]} -gt 0 ]] || return 0
+  if [[ ${#pids[@]} -eq 0 ]]; then
+    if port_has_listener "$target_port"; then
+      err "Port ${target_port} is already in use, but the owner PID is not visible from this user."
+      err "Run manager with the same runtime user (or with sudo), or change PORT in .env."
+      return 1
+    fi
+    return 0
+  fi
 
   for pid in "${pids[@]}"; do
     [[ -n "$pid" ]] || continue
@@ -824,13 +848,15 @@ ensure_port_available_for_app() {
       continue
     fi
     if pid_looks_like_app "$pid"; then
-      warn "Found stale app process on port ${target_port} (PID ${pid}); stopping it."
-      kill_pid_forcefully "$pid"
+      if [[ ! -f "$PID_FILE" ]] || ! is_running_fallback; then
+        printf "%s" "$pid" >"$PID_FILE"
+      fi
+      return 0
     fi
   done
 
   mapfile -t remaining < <(list_port_listener_pids "$target_port" || true)
-  if [[ ${#remaining[@]} -eq 0 ]]; then
+  if [[ ${#remaining[@]} -eq 0 ]] && ! port_has_listener "$target_port"; then
     return 0
   fi
 
@@ -940,7 +966,7 @@ clone_or_update_repo() {
 
 setup_env_interactive() {
   header
-  local default_port default_origin default_database_url port origin jwt_secret backup_signing_key sentry_dsn
+  local default_port default_origin default_database_url port origin jwt_secret backup_signing_key sentry_dsn webrtc_turn_urls webrtc_turn_username webrtc_turn_credential turn_domain
   ensure_mongodb
 
   default_port="$(load_env_value PORT)"
@@ -963,6 +989,37 @@ setup_env_interactive() {
   fi
 
   sentry_dsn="$(load_env_value SENTRY_DSN)"
+  webrtc_turn_urls="$(load_env_value NEXT_PUBLIC_WEBRTC_TURN_URLS)"
+  webrtc_turn_username="$(load_env_value NEXT_PUBLIC_WEBRTC_TURN_USERNAME)"
+  webrtc_turn_credential="$(load_env_value NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL)"
+  if [[ -z "$webrtc_turn_urls" ]]; then
+    webrtc_turn_urls="${FELFEL_WEBRTC_TURN_URLS:-}"
+  fi
+  if [[ -z "$webrtc_turn_username" ]]; then
+    webrtc_turn_username="${FELFEL_WEBRTC_TURN_USERNAME:-}"
+  fi
+  if [[ -z "$webrtc_turn_credential" ]]; then
+    webrtc_turn_credential="${FELFEL_WEBRTC_TURN_CREDENTIAL:-}"
+  fi
+  turn_domain="$(extract_domain_from_origin "$origin")"
+  if [[ -n "$turn_domain" ]]; then
+    webrtc_turn_urls="$(build_turn_urls_for_domain "$turn_domain")"
+  fi
+  if [[ "$INTERACTIVE" == "1" ]]; then
+    webrtc_turn_username="$(prompt_with_default "WebRTC TURN username" "${webrtc_turn_username:-}")"
+    webrtc_turn_credential="$(prompt_with_default "WebRTC TURN credential" "${webrtc_turn_credential:-}")"
+  fi
+  if [[ -n "$turn_domain" && -n "$webrtc_turn_username" && -n "$webrtc_turn_credential" ]]; then
+    if command -v turnadmin >/dev/null 2>&1; then
+      if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        turnadmin -a -u "$webrtc_turn_username" -r "$turn_domain" -p "$webrtc_turn_credential" >/dev/null 2>&1 || warn "Failed to create TURN user with turnadmin"
+      elif command -v sudo >/dev/null 2>&1; then
+        sudo turnadmin -a -u "$webrtc_turn_username" -r "$turn_domain" -p "$webrtc_turn_credential" >/dev/null 2>&1 || warn "Failed to create TURN user with turnadmin"
+      else
+        warn "turnadmin found but sudo/root not available; TURN user was not created"
+      fi
+    fi
+  fi
 
   upsert_env "NODE_ENV" "production"
   upsert_env "PORT" "$port"
@@ -976,6 +1033,9 @@ setup_env_interactive() {
   upsert_env "AUDIT_LOG_DIR" "./logs"
   upsert_env "SENTRY_DSN" "${sentry_dsn:-}"
   upsert_env "SENTRY_TRACES_SAMPLE_RATE" "0.1"
+  upsert_env "NEXT_PUBLIC_WEBRTC_TURN_URLS" "${webrtc_turn_urls:-}"
+  upsert_env "NEXT_PUBLIC_WEBRTC_TURN_USERNAME" "${webrtc_turn_username:-}"
+  upsert_env "NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL" "${webrtc_turn_credential:-}"
 
   mkdir -p "$LOG_DIR" "$BACKUP_DIR" "${APP_DIR}/uploads"
   ensure_runtime_permissions
@@ -1448,6 +1508,11 @@ normalize_domain_input() {
   printf "%s" "$raw"
 }
 
+build_turn_urls_for_domain() {
+  local domain="$1"
+  printf "turn:%s:3478?transport=udp,turn:%s:3478?transport=tcp,turns:%s:5349?transport=tcp" "$domain" "$domain" "$domain"
+}
+
 is_valid_domain() {
   local domain="$1"
   [[ "$domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,62}$ ]]
@@ -1600,8 +1665,8 @@ server {
         try_files \$uri =404;
     }
 
-    location / {
-        proxy_pass http://127.0.0.1:${port};
+    location ^~ /socket.io/ {
+        proxy_pass http://127.0.0.1:${port}/socket.io/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -1609,7 +1674,18 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 3600;
+        proxy_send_timeout 3600;
+        proxy_buffering off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 NGINX_CONF
@@ -1651,8 +1727,8 @@ server {
 
     client_max_body_size 25M;
 
-    location / {
-        proxy_pass http://127.0.0.1:${port};
+    location ^~ /socket.io/ {
+        proxy_pass http://127.0.0.1:${port}/socket.io/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -1660,7 +1736,18 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 3600;
+        proxy_send_timeout 3600;
+        proxy_buffering off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 NGINX_CONF
@@ -1751,6 +1838,7 @@ setup_nginx_vhost() {
   fi
 
   upsert_env "APP_ORIGIN" "http://${domain}"
+  upsert_env "NEXT_PUBLIC_WEBRTC_TURN_URLS" "$(build_turn_urls_for_domain "$domain")"
   ok "nginx vhost configured for ${domain}"
 
   local get_ssl="Y"
@@ -1830,6 +1918,7 @@ setup_nginx_vhost() {
         return
       fi
       upsert_env "APP_ORIGIN" "https://${domain}"
+      upsert_env "NEXT_PUBLIC_WEBRTC_TURN_URLS" "$(build_turn_urls_for_domain "$domain")"
       ok "SSL configured. APP_ORIGIN set to https://${domain}"
     else
       if [[ "$use_sudo" == "1" ]]; then

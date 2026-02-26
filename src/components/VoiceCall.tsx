@@ -7,9 +7,13 @@ interface VoiceCallProps {
   status: 'ringing' | 'incoming' | 'active';
   callerName?: string;
   calleeName?: string;
+  isMuted?: boolean;
+  audioPlaybackBlocked?: boolean;
   onAccept: () => void;
   onReject: () => void;
   onEnd: () => void;
+  onToggleMute?: () => void;
+  onResumeAudio?: () => void;
   t: (key: string) => string;
 }
 
@@ -17,16 +21,18 @@ export default function VoiceCall({
   status,
   callerName,
   calleeName,
+  isMuted = false,
+  audioPlaybackBlocked = false,
   onAccept,
   onReject,
   onEnd,
+  onToggleMute,
+  onResumeAudio,
   t,
 }: VoiceCallProps) {
   const [duration, setDuration] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Timer for active calls
   useEffect(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -56,7 +62,6 @@ export default function VoiceCall({
 
   return (
     <div className="call-overlay">
-      {/* Contact avatar */}
       <div className="call-pulse" style={{ marginBottom: 32 }}>
         <div style={{
           width: '100%',
@@ -74,21 +79,27 @@ export default function VoiceCall({
         </div>
       </div>
 
-      {/* Contact name */}
       <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>
         {contactName}
       </h2>
 
-      {/* Status text */}
       <p style={{ color: 'var(--fg-secondary)', fontSize: 16, marginBottom: 40 }}>
         {status === 'ringing' && t('call.calling')}
         {status === 'incoming' && t('call.incoming')}
         {status === 'active' && formatDuration(duration)}
       </p>
+      {status === 'active' && audioPlaybackBlocked && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={onResumeAudio}
+          style={{ marginBottom: 20 }}
+        >
+          Enable Audio
+        </button>
+      )}
 
-      {/* Action buttons */}
       <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
-        {/* Incoming: Accept + Reject */}
         {status === 'incoming' && (
           <>
             <button
@@ -125,12 +136,11 @@ export default function VoiceCall({
           </>
         )}
 
-        {/* Active or Ringing: Mute + End */}
         {(status === 'active' || status === 'ringing') && (
           <>
             {status === 'active' && (
               <button
-                onClick={() => setIsMuted(!isMuted)}
+                onClick={onToggleMute}
                 style={{
                   width: 56, height: 56, borderRadius: '50%',
                   background: isMuted ? 'var(--accent)' : 'var(--bg-tertiary)',
@@ -138,6 +148,7 @@ export default function VoiceCall({
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   transition: 'all 0.2s',
                 }}
+                disabled={!onToggleMute}
                 title={isMuted ? t('call.unmute') : t('call.mute')}
               >
                 <AppIcon name={isMuted ? 'micOff' : 'micOn'} size={20} />

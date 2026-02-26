@@ -633,31 +633,17 @@ export default function ChatView({
 
   return (
     <div className="chat-shell">
-      {/* Chat Header */}
-      <div
-        className="chat-header"
-        style={{
-          padding: '0 18px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={onToggleSidebar}>
-            <AppIcon name="menu" size={18} />
-          </button>
-          
-          {/* Room avatar/icon - clickable for groups */}
-          <div
-            style={{
-              cursor: room.type !== 'PRIVATE' ? 'pointer' : 'default',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}
-            onClick={() => room.type !== 'PRIVATE' && setShowMembersModal(true)}
-          >
+      <div className="chat-header">
+        <div className="chat-header-main">
+          <div className="chat-header-left">
+            <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={onToggleSidebar}>
+              <AppIcon name="menu" size={18} />
+            </button>
+            <div
+              className="chat-header-room"
+              style={{ cursor: room.type !== 'PRIVATE' ? 'pointer' : 'default' }}
+              onClick={() => room.type !== 'PRIVATE' && setShowMembersModal(true)}
+            >
             {room.profilePhotoUrl ? (
               <Image
                 src={room.profilePhotoUrl}
@@ -680,9 +666,9 @@ export default function ChatView({
                 {room.type === 'CHANNEL' ? <AppIcon name="channel" size={20} /> : room.type === 'GROUP' ? <AppIcon name="group" size={20} /> : roomDisplayName.charAt(0).toUpperCase()}
               </div>
             )}
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{roomDisplayName}</div>
-              <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+              <div className="chat-header-room-text">
+              <div className="chat-header-room-name">{roomDisplayName}</div>
+              <div className="chat-header-room-meta">
                 {room.type === 'PRIVATE' ? (
                   isOtherOnline ? (
                     <span style={{ color: 'var(--online)' }}>● {t('chat.online')}</span>
@@ -695,10 +681,10 @@ export default function ChatView({
               </div>
             </div>
           </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 4 }}>
+          </div>
+          <div className="chat-header-actions">
           <button
+            type="button"
             className="btn btn-ghost btn-icon btn-sm"
             onClick={handleEncryptionToggle}
             title={roomPassphrase ? 'Encryption enabled' : 'Enable encryption'}
@@ -706,9 +692,8 @@ export default function ChatView({
           >
             <AppIcon name="lock" size={16} />
           </button>
-          {/* Room photo upload (superAdmin only, for groups/channels) */}
           {user.isSuperAdmin && room.type !== 'PRIVATE' && (
-            <div>
+            <div className="chat-header-photo-actions">
               <input
                 ref={roomPhotoInputRef}
                 type="file"
@@ -717,6 +702,7 @@ export default function ChatView({
                 onChange={handleRoomPhotoUpload}
               />
               <button
+                type="button"
                 className="btn btn-ghost btn-icon btn-sm"
                 onClick={() => roomPhotoInputRef.current?.click()}
                 disabled={uploadingRoomPhoto}
@@ -726,6 +712,7 @@ export default function ChatView({
               </button>
               {room.profilePhotoUrl && (
                 <button
+                  type="button"
                   className="btn btn-ghost btn-icon btn-sm"
                   onClick={handleRemoveRoomPhoto}
                   title={t('room.removePhoto')}
@@ -737,10 +724,10 @@ export default function ChatView({
             </div>
           )}
           
-          {/* Voice call button — only for private chats */}
           {room.type === 'PRIVATE' && otherUser && (
             <button
-              className="btn btn-ghost btn-icon"
+              type="button"
+              className="btn btn-ghost btn-icon btn-sm"
               onClick={() => onStartCall(otherUser.id, otherUser.displayName || otherUser.username)}
               title={t('call.voice')}
             >
@@ -749,8 +736,8 @@ export default function ChatView({
           )}
         </div>
       </div>
+      </div>
 
-      {/* Messages Area */}
       <div className="chat-messages" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {loading ? (
           <div style={{ display: 'grid', gap: 10, padding: 8 }}>

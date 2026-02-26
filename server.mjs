@@ -74,7 +74,8 @@ function applySecurityHeaders(res) {
     "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; " +
       "img-src 'self' data: blob:; media-src 'self' blob:; " +
       "font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss:"
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; " +
+      "connect-src 'self' ws: wss: https://cloudflareinsights.com"
   );
 
   if (process.env.NODE_ENV === 'production') {
@@ -132,11 +133,12 @@ app.prepare().then(() => {
   // Socket.io
   const io = new Server(server, {
     cors: {
-      origin: process.env.APP_ORIGIN || false,
+      origin: true,
       credentials: true,
     },
-    pingInterval: 10000,
-    pingTimeout: 5000,
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    connectTimeout: 45000,
   });
   globalThis.__felfelIo = io;
 
@@ -147,24 +149,27 @@ app.prepare().then(() => {
   io.use((socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
-      if (!token) {
-        // Try cookie
+      const normalizedToken = typeof token === 'string' && token.trim() ? token.trim() : '';
+      if (!normalizedToken) {
         const cookieHeader = socket.handshake.headers?.cookie || '';
-        const tokenMatch = cookieHeader.match(/token=([^;]+)/);
+        const tokenMatch = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
         if (!tokenMatch) {
           log('warn', 'socket.auth.failed', { reason: 'no_token' });
           return next(new Error('No token'));
         }
-        const decoded = jwt.verify(tokenMatch[1], JWT_SECRET);
+        const rawToken = tokenMatch[1];
+        const decodedToken = decodeURIComponent(rawToken);
+        const decoded = jwt.verify(decodedToken, JWT_SECRET);
         socket.user = decoded;
       } else {
-        socket.user = jwt.verify(token, JWT_SECRET);
+        socket.user = jwt.verify(normalizedToken, JWT_SECRET);
       }
       next();
     } catch (err) {
-      log('warn', 'socket.auth.error', { error: err.message });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log('warn', 'socket.auth.error', { error: errorMessage });
       if (process.env.SENTRY_DSN) Sentry.captureException(err);
-      next(new Error('Auth error'));
+      next(new Error(`Auth error: ${errorMessage}`));
     }
   });
 
@@ -311,6 +316,11 @@ app.prepare().then(() => {
         callerName: username,
         startedAt: new Date().toISOString(),
       };
+
+      socket.emit('call:initiated', {
+        logId,
+        calleeId,
+      });
 
       // Notify callee
       io.to(`user:${calleeId}`).emit('call:incoming', {
