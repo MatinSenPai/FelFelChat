@@ -676,7 +676,12 @@ export default function ChatPage() {
     );
   }
 
-  if (!user) return null;
+  if (!user) {
+    if (typeof window !== 'undefined') {
+      window.location.replace('/login');
+    }
+    return null;
+  }
 
   const activeRoom = rooms.find((r) => r.id === activeRoomId);
 
