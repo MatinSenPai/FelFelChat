@@ -270,9 +270,16 @@ ensure_node_toolchain() {
 }
 
 ensure_mongodb_packages() {
-  local mgr series key_series distro codename component repo_file keyring repo_line pgp_tmp pgp_downloaded pgp_url
+  local mgr series key_series distro codename component repo_file keyring repo_line pgp_tmp pgp_downloaded
   mgr="$(detect_pkg_manager)"
   series="${FELFEL_MONGODB_SERIES:-}"
+
+  # Allow skipping automatic MongoDB install (useful on restricted networks).
+  # Set FELFEL_MONGODB_SKIP_INSTALL=1 if MongoDB is already installed.
+  if [[ "${FELFEL_MONGODB_SKIP_INSTALL:-0}" == "1" ]]; then
+    log "Skipping MongoDB package install (FELFEL_MONGODB_SKIP_INSTALL=1)"
+    return 0
+  fi
 
   case "$mgr" in
     apt)
@@ -294,95 +301,311 @@ ensure_mongodb_packages() {
       if [[ -z "$codename" ]]; then
         codename="$(lsb_release -sc 2>/dev/null || echo "jammy")"
       fi
-      if [[ -z "$series" ]]; then
-        if [[ "$codename" == "noble" ]]; then
-          series="8.2"
-        else
-          series="8.0"
-        fi
-      fi
-      if [[ "$codename" == "noble" ]]; then
-        if [[ "$series" != "8.0" && "$series" != "8.2" ]]; then
-          warn "Ubuntu noble is supported with MongoDB 8.0/8.2. Switching to 8.2."
-          series="8.2"
-        fi
-      fi
+      [[ -n "$series" ]] || series="8.0"
       component="main"
-      if [[ "$distro" == "ubuntu" ]]; then
-        component="multiverse"
-      fi
+      [[ "$distro" != "ubuntu" ]] || component="multiverse"
+
+      # ----------------------------------------------------------------
+      # FELFEL_MONGODB_MIRROR : custom apt mirror base URL
+      #   e.g. http://mirror.example.com/mongodb
+      #   Mirror must serve same directory structure as repo.mongodb.org/apt/
+      # FELFEL_MONGODB_PGP_MIRROR : base URL serving .asc PGP key files
+      #   e.g. http://mirror.example.com/pgp
+      # ----------------------------------------------------------------
+      local mongo_apt_mirror="${FELFEL_MONGODB_MIRROR:-}"
+
       key_series=""
       keyring=""
       pgp_tmp="/tmp/felfel-mongodb-server.asc"
-      as_root rm -f /etc/apt/sources.list.d/mongodb-org-*.list /etc/apt/sources.list.d/mongodb-enterprise-*.list 2>/dev/null || true
+      as_root rm -f /etc/apt/sources.list.d/mongodb-org-*.list \
+                    /etc/apt/sources.list.d/mongodb-enterprise-*.list 2>/dev/null || true
       if [[ -f /etc/apt/sources.list ]]; then
-        as_root sed -i '/repo\.mongodb\.org\/apt\/.*mongodb-org\//d; /repo\.mongodb\.org\/apt\/.*mongodb-enterprise\//d' /etc/apt/sources.list || true
+        as_root sed -i \
+          '/repo\.mongodb\.org\/apt\/.*mongodb-org\//d
+           /repo\.mongodb\.org\/apt\/.*mongodb-enterprise\//d' \
+          /etc/apt/sources.list || true
       fi
+
+      # Step 1: Download MongoDB PGP signing key.
+      # On geo-restricted networks (e.g. Iran), the official MongoDB CDN
+      # (pgp.mongodb.com / fastdl.mongodb.org) may return 403.
+      # We try: official CDN -> mongodb.org static -> custom mirror ->
+      #         Ubuntu keyserver (hkp usually unblocked by network firewalls).
       pgp_downloaded="0"
-      for key_series in "$series" "8.2" "8.0"
-      do
+      local pgp_mirror_base="${FELFEL_MONGODB_PGP_MIRROR:-}"
+
+      for key_series in "$series" "8.0"; do
         [[ -n "$key_series" ]] || continue
-        for pgp_url in \
-          "https://pgp.mongodb.com/server-${key_series}.asc" \
-          "https://www.mongodb.org/static/pgp/server-${key_series}.asc"
-        do
-          if curl -fsSL "$pgp_url" -o "$pgp_tmp"; then
-            pgp_downloaded="1"
-            break
+        local pgp_urls=()
+        pgp_urls+=("https://pgp.mongodb.com/server-${key_series}.asc")
+        pgp_urls+=("https://www.mongodb.org/static/pgp/server-${key_series}.asc")
+        [[ -z "$pgp_mirror_base" ]] || pgp_urls+=("${pgp_mirror_base}/server-${key_series}.asc")
+
+        for pgp_url in "${pgp_urls[@]}"; do
+          log "Trying MongoDB PGP key: ${pgp_url}"
+          if curl -fsSL --max-time 30 --retry 2 "${pgp_url}" -o "$pgp_tmp" 2>/dev/null \
+             && grep -q "BEGIN PGP" "$pgp_tmp" 2>/dev/null; then
+            pgp_downloaded="1"; break
+          fi
+          rm -f "$pgp_tmp"
+        done
+        [[ "$pgp_downloaded" == "1" ]] && break
+
+        # Fallback: Ubuntu keyserver (usually reachable when CDN is geo-blocked)
+        log "CDN blocked. Trying Ubuntu keyserver for MongoDB ${key_series} key..."
+        local mongo_key_ids=(
+          "B00A0BD1E2C63C11"
+          "20691EEC35216C63"
+          "E162F504A20CDF15"
+          "99DB70FAE1D7CE227FB6488206B2552E"
+        )
+        for key_id in "${mongo_key_ids[@]}"; do
+          rm -f /tmp/felfel-mongo-tmp.gpg /tmp/felfel-mongo-tmp.gpg~ 2>/dev/null || true
+          if gpg --no-default-keyring \
+               --keyring /tmp/felfel-mongo-tmp.gpg \
+               --keyserver hkp://keyserver.ubuntu.com \
+               --recv-keys "$key_id" 2>/dev/null; then
+            gpg --no-default-keyring \
+              --keyring /tmp/felfel-mongo-tmp.gpg \
+              --export --armor "$key_id" > "$pgp_tmp" 2>/dev/null || true
+            rm -f /tmp/felfel-mongo-tmp.gpg /tmp/felfel-mongo-tmp.gpg~ 2>/dev/null || true
+            if [[ -s "$pgp_tmp" ]]; then
+              pgp_downloaded="1"; break
+            fi
           fi
         done
-        if [[ "$pgp_downloaded" == "1" ]]; then
-          break
-        fi
+        [[ "$pgp_downloaded" == "1" ]] && break
       done
+
       if [[ "$pgp_downloaded" != "1" ]]; then
-        err "Failed to download MongoDB PGP key for series ${series}."
-        err "Set FELFEL_MONGODB_SERIES to a supported version (for noble: 8.0 or 8.2)."
+        warn "Could not download MongoDB PGP key from any source."
+        warn "Trying direct binary tarball install as final fallback..."
+        if _install_mongodb_deb_direct "$series" "$codename" "$distro"; then
+          return 0
+        fi
+        err "MongoDB installation failed. Try one of the following env vars:"
+        err "  FELFEL_MONGODB_PGP_MIRROR=<url>  – mirror serving server-X.Y.asc files"
+        err "  FELFEL_MONGODB_MIRROR=<url>       – apt mirror base URL"
+        err "  FELFEL_MONGODB_DEB_MIRROR=<url>   – binary tarball mirror"
+        err "  FELFEL_MONGODB_SKIP_INSTALL=1     – skip (if MongoDB already installed)"
         exit 1
       fi
+
       keyring="/usr/share/keyrings/mongodb-server-${key_series}.gpg"
       as_root gpg --dearmor -o "$keyring" "$pgp_tmp"
       rm -f "$pgp_tmp"
+
+      # Step 2: Add apt repo and install packages.
       repo_file="/etc/apt/sources.list.d/mongodb-org-${series}.list"
-      repo_line="deb [ arch=amd64,arm64 signed-by=${keyring} ] https://repo.mongodb.org/apt/${distro} ${codename}/mongodb-org/${series} ${component}"
+      local apt_base_url="https://repo.mongodb.org/apt/${distro}"
+      if [[ -n "$mongo_apt_mirror" ]]; then
+        apt_base_url="${mongo_apt_mirror}/${distro}"
+        log "Using custom MongoDB apt mirror: ${apt_base_url}"
+      fi
+      repo_line="deb [ arch=amd64,arm64 signed-by=${keyring} ] ${apt_base_url} ${codename}/mongodb-org/${series} ${component}"
       log "Mongo apt target: distro=${distro} codename=${codename} series=${series} key=${key_series}"
       printf "%s\n" "$repo_line" | as_root tee "$repo_file" >/dev/null
-      as_root apt-get update -y
-      if ! as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org mongodb-mongosh mongodb-database-tools; then
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-mongosh mongodb-database-tools || true
+
+      # Capture update output to detect 403 geo-block
+      as_root apt-get update -y > /tmp/felfel-apt-upd.log 2>&1 || true
+      if grep -q "403\|Forbidden\|Failed to fetch.*mongodb" /tmp/felfel-apt-upd.log 2>/dev/null; then
+        rm -f /tmp/felfel-apt-upd.log
+        warn "MongoDB apt repo is blocked (HTTP 403 / Forbidden)."
+        warn "Trying direct binary tarball install..."
+        as_root rm -f "$repo_file"
+        if _install_mongodb_deb_direct "$series" "$codename" "$distro"; then
+          return 0
+        fi
+        err "Both apt repo and direct binary install failed."
+        err "  Set FELFEL_MONGODB_MIRROR=<local-mirror> and rerun, or"
+        err "  install MongoDB manually and set FELFEL_MONGODB_SKIP_INSTALL=1."
+        exit 1
+      fi
+      rm -f /tmp/felfel-apt-upd.log
+
+      if ! as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+           mongodb-org mongodb-mongosh mongodb-database-tools; then
+        warn "Full mongodb-org install failed. Trying minimal set..."
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org || {
+          warn "mongodb-org apt install failed. Trying binary tarball fallback..."
+          as_root rm -f "$repo_file"
+          _install_mongodb_deb_direct "$series" "$codename" "$distro" || exit 1
+          return 0
+        }
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          mongodb-mongosh mongodb-database-tools || true
       fi
       ;;
     dnf|yum)
+      local mongo_rpm_mirror="${FELFEL_MONGODB_MIRROR:-}"
+      local gpg_key_url="https://pgp.mongodb.com/server-${series}.asc"
+      [[ -z "${FELFEL_MONGODB_PGP_MIRROR:-}" ]] || \
+        gpg_key_url="${FELFEL_MONGODB_PGP_MIRROR}/server-${series}.asc"
+      local rpm_baseurl="https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${series}/x86_64/"
+      if [[ -n "$mongo_rpm_mirror" ]]; then
+        rpm_baseurl="${mongo_rpm_mirror}/yum/redhat/\$releasever/mongodb-org/${series}/x86_64/"
+        log "Using custom MongoDB rpm mirror: ${mongo_rpm_mirror}"
+      fi
       repo_file="/etc/yum.repos.d/mongodb-org-${series}.repo"
-      if [[ "$mgr" == "dnf" ]]; then
-        as_root bash -lc "cat > '$repo_file' <<'EOF'
+      as_root bash -lc "cat > '$repo_file' <<'RPMEOF'
 [mongodb-org-${series}]
 name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${series}/x86_64/
+baseurl=${rpm_baseurl}
 gpgcheck=1
 enabled=1
-gpgkey=https://pgp.mongodb.com/server-${series}.asc
-EOF"
+gpgkey=${gpg_key_url}
+RPMEOF"
+      if [[ "$mgr" == "dnf" ]]; then
         as_root dnf install -y mongodb-org mongodb-mongosh mongodb-database-tools
       else
-        as_root bash -lc "cat > '$repo_file' <<'EOF'
-[mongodb-org-${series}]
-name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/${series}/x86_64/
-gpgcheck=1
-enabled=1
-gpgkey=https://pgp.mongodb.com/server-${series}.asc
-EOF"
         as_root yum install -y mongodb-org mongodb-mongosh mongodb-database-tools
       fi
       ;;
     *)
       err "Automatic MongoDB install is supported on apt/dnf/yum only."
-      err "Install mongod, mongosh and mongodump manually, then rerun installer."
+      err "Install mongod and mongosh manually, set FELFEL_MONGODB_SKIP_INSTALL=1, then rerun."
       exit 1
       ;;
   esac
+}
+
+# ------------------------------------------------------------------
+# _install_mongodb_deb_direct: install MongoDB from a prebuilt binary
+# tarball when the official apt/yum repository is inaccessible.
+#
+# Downloads from fastdl.mongodb.org (different CDN than repo.mongodb.org)
+# or from FELFEL_MONGODB_DEB_MIRROR.
+#
+# Env vars (all optional):
+#   FELFEL_MONGODB_DEB_MIRROR  – base URL serving MongoDB tarball files
+#                                 (default: https://fastdl.mongodb.org)
+#   FELFEL_MONGODB_VERSION      – exact version, e.g. "8.0.5"
+# ------------------------------------------------------------------
+_install_mongodb_deb_direct() {
+  local series="${1:-8.0}"
+  local codename="${2:-jammy}"
+  local _distro="${3:-ubuntu}"
+
+  local deb_mirror="${FELFEL_MONGODB_DEB_MIRROR:-}"
+  local version="${FELFEL_MONGODB_VERSION:-}"
+
+  local default_version
+  case "$series" in
+    "8.0"|"8.2") default_version="8.0.5"  ;;
+    "7.0")       default_version="7.0.15" ;;
+    "6.0")       default_version="6.0.19" ;;
+    *)           default_version="8.0.5"  ;;
+  esac
+  [[ -n "$version" ]] || version="$default_version"
+
+  local arch
+  arch="$(dpkg --print-architecture 2>/dev/null || echo "amd64")"
+
+  local os_string
+  case "$codename" in
+    noble)    os_string="ubuntu2404" ;;
+    jammy)    os_string="ubuntu2204" ;;
+    focal)    os_string="ubuntu2004" ;;
+    bionic)   os_string="ubuntu1804" ;;
+    bookworm) os_string="debian12"   ;;
+    bullseye) os_string="debian11"   ;;
+    buster)   os_string="debian10"   ;;
+    *)        os_string="ubuntu2204" ;;
+  esac
+
+  log "Attempting direct binary tarball: MongoDB ${version} for ${os_string}/${arch}..."
+
+  local base_dl="${deb_mirror:-https://fastdl.mongodb.org}"
+  local tgz_url="${base_dl}/linux/mongodb-linux-${arch}-${os_string}-${version}.tgz"
+  local tgz_path="/tmp/felfel-mongo.tgz"
+  local extract_dir="/tmp/felfel-mongo-extract"
+
+  if ! curl -fL --max-time 180 --retry 3 --retry-delay 5 --connect-timeout 30 \
+       "$tgz_url" -o "$tgz_path" 2>/dev/null; then
+    err "Binary tarball download failed: ${tgz_url}"
+    return 1
+  fi
+
+  rm -rf "$extract_dir"; mkdir -p "$extract_dir"
+  if ! tar -xzf "$tgz_path" --strip-components=1 -C "$extract_dir" 2>/dev/null; then
+    err "Failed to extract MongoDB tarball."; rm -f "$tgz_path"; return 1
+  fi
+  rm -f "$tgz_path"
+
+  for bin in mongod mongos; do
+    [[ -f "${extract_dir}/bin/${bin}" ]] || continue
+    as_root cp "${extract_dir}/bin/${bin}" /usr/local/bin/
+    as_root chmod +x "/usr/local/bin/${bin}"
+  done
+  rm -rf "$extract_dir"
+
+  # Try to get mongosh separately
+  if ! command -v mongosh >/dev/null 2>&1; then
+    local mongosh_base="${FELFEL_MONGODB_DEB_MIRROR:-https://downloads.mongodb.com}"
+    local mongosh_url="${mongosh_base}/compass/mongosh-2.3.0-linux-${arch}.tgz"
+    if curl -fL --max-time 120 --retry 2 --connect-timeout 30 \
+         "$mongosh_url" -o /tmp/felfel-mongosh.tgz 2>/dev/null; then
+      mkdir -p /tmp/felfel-mongosh-x
+      tar -xzf /tmp/felfel-mongosh.tgz --strip-components=1 -C /tmp/felfel-mongosh-x 2>/dev/null || true
+      if [[ -f "/tmp/felfel-mongosh-x/bin/mongosh" ]]; then
+        as_root cp /tmp/felfel-mongosh-x/bin/mongosh /usr/local/bin/mongosh
+        as_root chmod +x /usr/local/bin/mongosh
+      fi
+      rm -rf /tmp/felfel-mongosh.tgz /tmp/felfel-mongosh-x
+    fi
+  fi
+
+  command -v mongod >/dev/null 2>&1 || { err "mongod not found after tarball install."; return 1; }
+  ok "MongoDB installed from tarball: $(mongod --version 2>/dev/null | head -1 || echo 'ok')"
+
+  # System setup: user, dirs, config, systemd unit
+  id mongod >/dev/null 2>&1 || as_root useradd --system --no-create-home --shell /bin/false mongod 2>/dev/null || true
+  as_root mkdir -p /var/lib/mongodb /var/log/mongodb /var/run/mongodb
+  as_root chown -R mongod:mongod /var/lib/mongodb /var/log/mongodb /var/run/mongodb 2>/dev/null || true
+
+  if [[ ! -f /etc/mongod.conf ]]; then
+    cat > /tmp/felfel-mongod.conf <<'MONGOD_CONF'
+storage:
+  dbPath: /var/lib/mongodb
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+processManagement:
+  pidFilePath: /var/run/mongodb/mongod.pid
+  timeZoneInfo: /usr/share/zoneinfo
+MONGOD_CONF
+    as_root mv /tmp/felfel-mongod.conf /etc/mongod.conf
+  fi
+
+  if command -v systemctl >/dev/null 2>&1 && \
+     ! systemctl list-unit-files 2>/dev/null | grep -q '^mongod\.service'; then
+    cat > /tmp/felfel-mongod.service <<'MONGOD_UNIT'
+[Unit]
+Description=MongoDB Database Server
+After=network.target
+
+[Service]
+User=mongod
+Group=mongod
+ExecStart=/usr/local/bin/mongod --config /etc/mongod.conf
+ExecStartPre=/bin/mkdir -p /var/run/mongodb
+ExecStartPre=+/bin/chown mongod:mongod /var/run/mongodb
+LimitNOFILE=64000
+TasksMax=32768
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+MONGOD_UNIT
+    as_root mv /tmp/felfel-mongod.service /etc/systemd/system/mongod.service
+    as_root systemctl daemon-reload 2>/dev/null || true
+  fi
+  return 0
 }
 
 ensure_mongodb_service_running() {
