@@ -32,6 +32,39 @@ export default function AdminDashboard() {
   const [uploadingSticker, setUploadingSticker] = useState(false);
   const [uploadingGif, setUploadingGif] = useState(false);
 
+  // Superadmin profile change state
+  const [profileForm, setProfileForm] = useState({ currentPassword: '', newPassword: '', newUsername: '', newDisplayName: user?.displayName ?? '' });
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  const handleProfileSave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setProfileLoading(true);
+    setProfileMsg(null);
+    try {
+      const res = await fetch('/api/admin/superadmin', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: profileForm.currentPassword,
+          ...(profileForm.newPassword ? { newPassword: profileForm.newPassword } : {}),
+          ...(profileForm.newUsername ? { newUsername: profileForm.newUsername } : {}),
+          newDisplayName: profileForm.newDisplayName,
+        }),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok) {
+        setProfileMsg({ type: 'err', text: String((data as { error?: string }).error ?? 'error') });
+      } else {
+        setProfileMsg({ type: 'ok', text: 'Saved successfully' });
+        setProfileForm(prev => ({ ...prev, currentPassword: '', newPassword: '', newUsername: '' }));
+      }
+    } catch {
+      setProfileMsg({ type: 'err', text: 'Network error' });
+    }
+    setProfileLoading(false);
+  };
+
   const fetchStickers = async () => {
     setStickersLoading(true);
     try {
@@ -564,6 +597,45 @@ export default function AdminDashboard() {
                 ) : (
                   <p style={{ color: 'var(--fg-muted)' }}>{t('admin.noActiveCall')}</p>
                 )}
+              </div>
+
+              {/* Superadmin Profile */}
+              <div className="card" style={{ marginTop: 24 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>🔐 Superadmin Profile</h3>
+                <form onSubmit={handleProfileSave} style={{ display: 'grid', gap: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 13, color: 'var(--fg-muted)', display: 'block', marginBottom: 4 }}>New Username (optional)</label>
+                      <input className="input" type="text" placeholder={user?.username} value={profileForm.newUsername}
+                        onChange={e => setProfileForm(prev => ({ ...prev, newUsername: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 13, color: 'var(--fg-muted)', display: 'block', marginBottom: 4 }}>Display Name</label>
+                      <input className="input" type="text" value={profileForm.newDisplayName}
+                        onChange={e => setProfileForm(prev => ({ ...prev, newDisplayName: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 13, color: 'var(--fg-muted)', display: 'block', marginBottom: 4 }}>New Password (optional)</label>
+                      <input className="input" type="password" placeholder="min 8 chars" value={profileForm.newPassword}
+                        onChange={e => setProfileForm(prev => ({ ...prev, newPassword: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 13, color: 'var(--fg-muted)', display: 'block', marginBottom: 4 }}>Current Password <span style={{ color: 'var(--accent)' }}>*</span></label>
+                      <input className="input" type="password" placeholder="required" value={profileForm.currentPassword} required
+                        onChange={e => setProfileForm(prev => ({ ...prev, currentPassword: e.target.value }))} />
+                    </div>
+                  </div>
+                  {profileMsg && (
+                    <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13,
+                      background: profileMsg.type === 'ok' ? 'rgba(72,199,116,0.15)' : 'rgba(255,79,79,0.15)',
+                      color: profileMsg.type === 'ok' ? 'var(--success)' : 'var(--danger)' }}>
+                      {profileMsg.text}
+                    </div>
+                  )}
+                  <button type="submit" className="btn btn-primary" disabled={profileLoading} style={{ justifySelf: 'start' }}>
+                    {profileLoading ? '...' : 'Save Changes'}
+                  </button>
+                </form>
               </div>
             </>
           ) : (

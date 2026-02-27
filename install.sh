@@ -1735,14 +1735,106 @@ remove_launcher() {
   fi
 }
 
+superadmin_change_credentials() {
+  header
+  echo "Change Superadmin Credentials"
+  line 62 "-"
+  echo "This updates the superadmin account directly in MongoDB."
+  echo
+
+  if ! command -v mongosh >/dev/null 2>&1; then
+    err "mongosh not found. Cannot update credentials."
+    if [[ "$INTERACTIVE" == "1" ]]; then pause; fi
+    return 1
+  fi
+
+  local db_url db_name
+  db_url="$(load_env_value DATABASE_URL 2>/dev/null || true)"
+  if [[ -z "$db_url" ]]; then
+    db_url="$(grep -E '^DATABASE_URL=' "${APP_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+  fi
+  db_name="$(printf '%s' "$db_url" | sed -E 's|.*//[^/]+/([^?]+).*|\1|' || echo 'felfelchat')"
+  db_name="${db_name:-felfelchat}"
+
+  # Find the superadmin user
+  local sa_username
+  sa_username="$(mongosh --quiet "$db_url" --eval \
+    'const u = db.User.findOne({isSuperAdmin:true}); print(u ? u.username : "")' 2>/dev/null || true)"
+
+  if [[ -z "$sa_username" ]]; then
+    err "No superadmin user found in database: ${db_name}"
+    err "Check that the app was installed and the database seeded."
+    if [[ "$INTERACTIVE" == "1" ]]; then pause; fi
+    return 1
+  fi
+
+  ok "Found superadmin: ${sa_username}"
+  echo
+
+  local new_username new_password confirm_password new_displayname
+  read -r -p "New username (leave blank to keep '${sa_username}'): " new_username
+  read -r -p "New display name (leave blank to skip): " new_displayname
+  read -r -s -p "New password (leave blank to skip): " new_password; echo
+  if [[ -n "$new_password" ]]; then
+    if [[ ${#new_password} -lt 8 ]]; then
+      err "Password must be at least 8 characters."
+      if [[ "$INTERACTIVE" == "1" ]]; then pause; fi
+      return 1
+    fi
+    read -r -s -p "Confirm new password: " confirm_password; echo
+    if [[ "$new_password" != "$confirm_password" ]]; then
+      err "Passwords do not match."
+      if [[ "$INTERACTIVE" == "1" ]]; then pause; fi
+      return 1
+    fi
+  fi
+
+  if [[ -z "$new_username" && -z "$new_password" && -z "$new_displayname" ]]; then
+    warn "Nothing to update."
+    if [[ "$INTERACTIVE" == "1" ]]; then pause; fi
+    return 0
+  fi
+
+  # Build the update object with bcrypt hash
+  local js_update='const upd = {};'
+  if [[ -n "$new_username" ]]; then
+    js_update+="upd.username = '${new_username}';"
+  fi
+  if [[ -n "$new_displayname" ]]; then
+    js_update+="upd.displayName = '${new_displayname}';"
+  fi
+  if [[ -n "$new_password" ]]; then
+    # node bcrypt hash (mongosh does not have bcrypt; use node inline)
+    local hashed
+    hashed="$(node -e "const b=require('bcryptjs');b.hash('${new_password}',12).then(h=>console.log(h)).catch(()=>process.exit(1))" 2>/dev/null || true)"
+    if [[ -z "$hashed" ]]; then
+      err "Failed to hash password. Is bcryptjs available?"
+      if [[ "$INTERACTIVE" == "1" ]]; then pause; fi
+      return 1
+    fi
+    js_update+="upd.password = '${hashed}';"
+  fi
+
+  mongosh --quiet "$db_url" --eval "
+    ${js_update}
+    const res = db.User.updateOne({isSuperAdmin: true}, {'\$set': upd});
+    print(res.modifiedCount === 1 ? 'ok' : 'notfound');
+  " 2>/dev/null | grep -q "ok" \
+    && ok "Superadmin credentials updated successfully." \
+    || err "Update failed. Check mongosh connection and database name."
+
+  if [[ "$INTERACTIVE" == "1" ]]; then pause; fi
+}
+
 uninstall_app() {
+
   header
   echo "Uninstall ${APP_NAME}"
   line 62 "-"
-  echo "This will remove service/launcher/config and optionally app files."
+  echo "This will remove the app, service, nginx config, launcher, and config files."
   echo
 
-  local confirm keep_files
+  local confirm keep_files wipe_db
   if [[ "$INTERACTIVE" == "1" ]]; then
     read -r -p "Type UNINSTALL to continue: " confirm
     if [[ "$confirm" != "UNINSTALL" ]]; then
@@ -1750,47 +1842,96 @@ uninstall_app() {
       pause
       return
     fi
-    read -r -p "Keep app directory (${APP_DIR})? [Y/n]: " keep_files
+    read -r -p "Also DELETE the app directory (${APP_DIR})? [Y/n]: " keep_files
+    read -r -p "Also DROP the MongoDB database? WARNING: all chat data will be lost! [y/N]: " wipe_db
   else
     if [[ "${FELFEL_FORCE_UNINSTALL:-0}" != "1" ]]; then
       err "Non-interactive uninstall requires FELFEL_FORCE_UNINSTALL=1"
       exit 1
     fi
     keep_files="n"
+    wipe_db="${FELFEL_WIPE_DB:-n}"
   fi
 
-  if has_systemd_service; then
-    if command -v systemctl >/dev/null 2>&1; then
-      if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-        systemctl stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
-        systemctl disable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
-      else
-        sudo systemctl stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
-        sudo systemctl disable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
-      fi
+  # ── 1. Stop and kill ALL running app processes ─────────────────────
+  if [[ "$(runtime_controller)" == "systemd" ]]; then
+    as_root systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+    as_root systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
+  fi
+
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$pid" ]]; then kill -9 "$pid" 2>/dev/null || true; fi
+    rm -f "$PID_FILE"
+  fi
+
+  local orphan_pids
+  mapfile -t orphan_pids < <(
+    pgrep -f "node server\.mjs" 2>/dev/null || true
+    pgrep -f "npm run start" 2>/dev/null | grep -v "^$$" || true
+  )
+  for p in "${orphan_pids[@]}"; do
+    [[ -n "$p" ]] || continue
+    kill -9 "$p" 2>/dev/null || true
+  done
+  ok "All app processes stopped"
+
+  # ── 2. Remove systemd service ─────────────────────────────────────
+  local service_file="/etc/systemd/system/${SERVICE_NAME}.service"
+  if [[ -f "$service_file" ]]; then
+    as_root rm -f "$service_file"
+    as_root systemctl daemon-reload 2>/dev/null || true
+    ok "Removed systemd service: ${SERVICE_NAME}.service"
+  fi
+
+  # ── 3. Remove nginx vhost ─────────────────────────────────────────
+  local nginx_removed="0"
+  for conf in \
+    "/etc/nginx/sites-available/felfelchat.conf" \
+    "/etc/nginx/sites-enabled/felfelchat.conf" \
+    "/etc/nginx/conf.d/felfelchat.conf"; do
+    if [[ -f "$conf" ]]; then
+      as_root rm -f "$conf"
+      nginx_removed="1"
     fi
-    if [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
-      as_root rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
-      as_root systemctl daemon-reload || true
-      ok "Removed systemd service: ${SERVICE_NAME}.service"
+  done
+  if [[ "$nginx_removed" == "1" ]]; then
+    as_root nginx -t 2>/dev/null && as_root systemctl reload nginx 2>/dev/null || true
+    ok "Removed nginx vhost config"
+  fi
+
+  # ── 4. Remove stale MongoDB apt repo files ────────────────────────
+  for f in /etc/apt/sources.list.d/mongodb-org-*.list; do
+    [[ -f "$f" ]] || continue
+    as_root rm -f "$f" 2>/dev/null || true
+  done
+
+  # ── 5. Optionally drop the MongoDB database ───────────────────────
+  if [[ "${wipe_db:-n}" =~ ^[Yy]$ ]]; then
+    if command -v mongosh >/dev/null 2>&1; then
+      local db_url db_name
+      db_url="$(load_env_value DATABASE_URL 2>/dev/null || true)"
+      db_name="$(printf '%s' "$db_url" | sed -E 's|.*//[^/]+/([^?]+).*|\1|' || echo 'felfelchat')"
+      db_name="${db_name:-felfelchat}"
+      mongosh --quiet "$db_name" --eval 'db.dropDatabase()' 2>/dev/null \
+        && ok "Dropped MongoDB database: ${db_name}" \
+        || warn "Could not drop MongoDB database (may not exist)"
+    else
+      warn "mongosh not found — skipping database drop"
     fi
   fi
 
-  if [[ -f "$PID_FILE" ]] && is_running_fallback; then
-    stop_server || true
-  fi
-
+  # ── 6. Remove launcher, config ────────────────────────────────────
   remove_launcher
 
-  if [[ -f "$CONFIG_FILE" ]]; then
-    rm -f "$CONFIG_FILE"
-    ok "Removed config: $CONFIG_FILE"
-  fi
-
+  if [[ -f "$CONFIG_FILE" ]]; then rm -f "$CONFIG_FILE"; fi
   if [[ -d "$CONFIG_DIR" ]] && [[ -z "$(ls -A "$CONFIG_DIR" 2>/dev/null)" ]]; then
     rmdir "$CONFIG_DIR" 2>/dev/null || true
   fi
+  ok "Removed manager config"
 
+  # ── 7. Remove app directory (optional) ───────────────────────────
   if [[ "${keep_files:-Y}" =~ ^[Nn]$ ]]; then
     if [[ -n "$APP_DIR" && "$APP_DIR" != "/" && -d "$APP_DIR" ]]; then
       rm -rf "$APP_DIR"
@@ -1802,7 +1943,7 @@ uninstall_app() {
     warn "Kept app directory: $APP_DIR"
   fi
 
-  ok "Uninstall completed"
+  ok "Uninstall completed. All FelFel components removed."
   if [[ "$INTERACTIVE" == "1" ]]; then
     pause
   fi
@@ -2372,6 +2513,7 @@ $(printf "%b" "$COLOR_BOLD")Tools$(printf "%b" "$COLOR_RESET")
  13) Install/repair 'felfel' launcher
  14) Setup/update nginx vhost + APP_ORIGIN
  15) Uninstall FelFel
+ 16) Change superadmin password/username
   0) Exit
 EOF
     echo
@@ -2392,6 +2534,7 @@ EOF
       13) header; install_launcher; pause ;;
       14) setup_nginx_vhost_tui ;;
       15) uninstall_app ;;
+      16) superadmin_change_credentials ;;
       0) exit 0 ;;
       *) warn "Invalid option"; pause ;;
     esac
@@ -2405,9 +2548,10 @@ main() {
     install) bootstrap_interactive ;;
     tui) ensure_app_dir_for_tui; menu ;;
     uninstall) ensure_app_dir_for_tui; uninstall_app ;;
+    superadmin) ensure_app_dir_for_tui; superadmin_change_credentials ;;
     *)
       err "Unknown mode: $mode"
-      err "Use: install.sh (install) or install.sh tui or install.sh uninstall"
+      err "Usage: install.sh [install|tui|uninstall|superadmin]"
       exit 1
       ;;
   esac

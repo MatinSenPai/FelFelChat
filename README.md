@@ -228,6 +228,64 @@ npm start
 
 ---
 
+## 👑 سوپرادمین
+
+### سوپرادمین چیست؟
+
+سوپرادمین تنها کاربری است که به **پنل مدیریت** (`/admin`) دسترسی دارد. این حساب در اولین نصب توسط اسکریپت ایجاد می‌شود.
+
+### دسترسی به پنل مدیریت
+
+۱. به آدرس `http://your-server/admin` بروید
+۲. با اطلاعات سوپرادمین وارد شوید
+۳. (در صورت بسته بودن ثبت‌نام، از بخش Login استفاده کنید)
+
+قابلیت‌های پنل مدیریت:
+
+| بخش         | توضیح                              |
+| ----------- | ---------------------------------- |
+| Users       | مدیریت کاربران، بستن حساب، بن کردن |
+| Rooms       | مدیریت اتاق‌های گفتگو              |
+| Messages    | مشاهده پیام‌های همه اتاق‌ها        |
+| Calls       | تاریخچه و وضعیت تماس‌های صوتی      |
+| Storage     | مدیریت فضای ذخیره‌سازی             |
+| Backup      | ساخت و بازیابی پشتیبان             |
+| Settings    | روشن/خاموش کردن ثبت‌نام            |
+| Sticker/GIF | آپلود و مدیریت استیکر و GIF        |
+
+### تغییر مشخصات سوپرادمین (از طریق وب)
+
+در پنل مدیریت، در پایین صفحه داشبورد، بخش **🔐 Superadmin Profile** وجود دارد:
+
+- نام کاربری جدید (اختیاری)
+- نام نمایشی جدید
+- رمز عبور جدید (اختیاری)
+- رمز عبور فعلی (الزامی برای تأیید)
+
+### تغییر مشخصات سوپرادمین (از طریق سرور)
+
+اگر به پنل وب دسترسی ندارید یا رمز عبور را فراموش کرده‌اید، از دستور زیر در سرور استفاده کنید:
+
+```bash
+# روش ۱: از طریق TUI (توصیه شده)
+felfel          # منو اصلی
+# گزینه 16 را انتخاب کنید: Change superadmin password/username
+
+# روش ۲: مستقیم
+felfel superadmin
+```
+
+این دستور موارد زیر را می‌پرسد:
+
+- نام کاربری جدید (اختیاری — خالی بگذارید تا تغییر نکند)
+- نام نمایشی جدید (اختیاری)
+- رمز عبور جدید (اختیاری — خالی بگذارید تا تغییر نکند)
+- تأیید رمز عبور جدید
+
+> **توجه:** این دستور مستقیماً در MongoDB تغییر می‌دهد و نیازی به اجرای اپلیکیشن ندارد.
+
+---
+
 ## 📄 لایسنس
 
 این پروژه تحت لایسنس MIT منتشر شده است.
@@ -400,7 +458,7 @@ MongoDB Replica Set is required for Prisma change streams. Add the following to 
 
 ```yaml
 replication:
-  replSetName: "rs0"
+  replSetName: 'rs0'
 ```
 
 Then restart and initialize:
@@ -479,6 +537,62 @@ The app is available at `http://localhost:3000`.
 - Uploaded files are served from a sandboxed directory with path-traversal protection
 - Content Security Policy, X-Frame-Options, and other security headers applied on every response
 - `JWT_SECRET` and `BACKUP_SIGNING_KEY` should be rotated regularly (see `docs/OPERATIONS.md`)
+
+---
+
+## 👑 Superadmin
+
+### What is the Superadmin?
+
+The superadmin is the only account with access to the **Admin Panel** (`/admin`). It is created automatically during installation by `install.sh`.
+
+### Accessing the Admin Panel
+
+1. Navigate to `http://your-server/admin`
+2. Log in with your superadmin credentials
+3. The panel is **only visible** to the superadmin account
+
+| Section     | Description                               |
+| ----------- | ----------------------------------------- |
+| Users       | Manage users, ban accounts                |
+| Rooms       | View and manage chat rooms                |
+| Messages    | Browse all room messages                  |
+| Calls       | Voice call history and active call status |
+| Storage     | Manage uploaded files                     |
+| Backup      | Create & restore database backups         |
+| Settings    | Toggle user registration on/off           |
+| Sticker/GIF | Upload and manage custom stickers & GIFs  |
+
+### Changing Superadmin Credentials (Web UI)
+
+At the bottom of the Admin Dashboard there is a **🔐 Superadmin Profile** card where you can change:
+
+- **Username** (optional)
+- **Display name**
+- **Password** (optional, min 8 characters)
+- **Current password** is always required to confirm changes
+
+### Changing Superadmin Credentials (Server CLI)
+
+If you cannot access the web panel or have forgotten the password, use the `felfel` command directly on the server:
+
+```bash
+# Recommended: interactive TUI menu
+felfel
+# Select option 16: Change superadmin password/username
+
+# Direct command
+felfel superadmin
+```
+
+You will be prompted for:
+
+- New username (optional — leave blank to keep current)
+- New display name (optional)
+- New password (optional — leave blank to keep current)
+- Password confirmation
+
+> **Note:** This command updates MongoDB directly. The app does not need to be running.
 
 ---
 
