@@ -133,11 +133,51 @@ detect_pkg_manager() {
   echo "unknown"
 }
 
+# ------------------------------------------------------------------
+# Remove broken/stale MongoDB apt repo files that return 403.
+# On geo-restricted networks (e.g. Iranian VPS), a leftover
+# /etc/apt/sources.list.d/mongodb-org-*.list from a previous
+# install attempt will cause ALL apt-get update calls to fail.
+# This function proactively cleans them up if they are unreachable.
+# ------------------------------------------------------------------
+_cleanup_broken_apt_repos() {
+  local mongo_lists
+  mongo_lists=(/etc/apt/sources.list.d/mongodb-org-*.list /etc/apt/sources.list.d/mongodb-enterprise-*.list)
+  local found_any="0"
+  for f in "${mongo_lists[@]}"; do
+    [[ -f "$f" ]] && found_any="1" && break
+  done
+  [[ "$found_any" == "1" ]] || return 0
+
+  # Quick connectivity test: try fetching the InRelease from the repo
+  # If it returns 403/Forbidden, remove the offending source file.
+  for f in "${mongo_lists[@]}"; do
+    [[ -f "$f" ]] || continue
+    local repo_url
+    repo_url="$(grep -oP 'https?://[^ ]+' "$f" 2>/dev/null | head -1 || true)"
+    if [[ -n "$repo_url" ]]; then
+      local http_code
+      http_code="$(curl -sL -o /dev/null -w '%{http_code}' --max-time 10 --connect-timeout 5 "${repo_url}/InRelease" 2>/dev/null || echo "000")"
+      if [[ "$http_code" == "403" || "$http_code" == "000" ]]; then
+        warn "Removing blocked MongoDB apt repo: $f (HTTP ${http_code})"
+        as_root rm -f "$f"
+        # Also clean from sources.list
+        if [[ -f /etc/apt/sources.list ]]; then
+          as_root sed -i '/repo\.mongodb\.org\/apt\/.*mongodb-org\//d; /repo\.mongodb\.org\/apt\/.*mongodb-enterprise\//d' /etc/apt/sources.list 2>/dev/null || true
+        fi
+      fi
+    fi
+  done
+}
+
 pkg_install() {
   local mgr="$1"
   shift
   case "$mgr" in
     apt)
+      # Clean up any stale MongoDB apt repos that return 403 (geo-blocked)
+      # to prevent them from breaking all future apt operations.
+      _cleanup_broken_apt_repos
       as_root env DEBIAN_FRONTEND=noninteractive apt-get update -y
       as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
       ;;
@@ -705,7 +745,9 @@ ensure_mongodb_replica_set() {
 }
 
 ensure_mongodb() {
-  if ! command -v mongod >/dev/null 2>&1 || ! command -v mongosh >/dev/null 2>&1 || ! command -v mongodump >/dev/null 2>&1 || ! command -v mongorestore >/dev/null 2>&1; then
+  # Only require mongod and mongosh; mongodump/mongorestore are optional
+  # (the binary tarball fallback on geo-blocked networks does not include them).
+  if ! command -v mongod >/dev/null 2>&1 || ! command -v mongosh >/dev/null 2>&1; then
     log "Installing MongoDB server and tools..."
     ensure_mongodb_packages
   fi
