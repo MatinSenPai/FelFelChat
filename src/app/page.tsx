@@ -248,6 +248,7 @@ export default function ChatPage() {
     });
     activePeerUserIdRef.current = targetUserId;
     pc.onconnectionstatechange = () => {
+      console.log('[WebRTC] connectionState:', pc.connectionState);
       if (pc.connectionState !== 'failed' || connectionFailureHandledRef.current) {
         return;
       }
@@ -261,6 +262,7 @@ export default function ChatPage() {
       if (!event.candidate || !activePeerUserIdRef.current) {
         return;
       }
+      console.log('[WebRTC] Sending ICE candidate:', event.candidate.type, event.candidate.protocol);
       const socket = getSocket();
       socket.emit('call:signal', {
         targetUserId: activePeerUserIdRef.current,
@@ -268,6 +270,7 @@ export default function ChatPage() {
       });
     };
     pc.ontrack = (event) => {
+      console.log('[WebRTC] Remote track received:', event.track.kind);
       if (event.streams && event.streams[0]) {
         remoteStreamRef.current = event.streams[0];
       } else {
@@ -282,6 +285,7 @@ export default function ChatPage() {
       void tryPlayRemoteAudio();
     };
     pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC] iceConnectionState:', pc.iceConnectionState);
       if (pc.iceConnectionState === 'failed') {
         pc.restartIce();
       }
@@ -792,7 +796,7 @@ export default function ChatPage() {
           t={t}
         />
       )}
-      <audio ref={remoteAudioRef} autoPlay playsInline hidden />
+      <audio ref={remoteAudioRef} autoPlay playsInline style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }} />
     </div>
   );
 }

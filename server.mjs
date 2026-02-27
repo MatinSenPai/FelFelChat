@@ -1,31 +1,31 @@
-import 'dotenv/config';
-import { createServer } from 'http';
-import { parse } from 'url';
-import next from 'next';
-import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
-import fs from 'fs';
-import path from 'path';
-import { PrismaClient } from '@prisma/client';
-import * as Sentry from '@sentry/node';
+import "dotenv/config";
+import { createServer } from "http";
+import { parse } from "url";
+import next from "next";
+import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
+import fs from "fs";
+import path from "path";
+import { PrismaClient } from "@prisma/client";
+import * as Sentry from "@sentry/node";
 
-const dev = process.env.NODE_ENV !== 'production';
-const hostname = '0.0.0.0';
-const port = parseInt(process.env.PORT || '3000', 10);
+const dev = process.env.NODE_ENV !== "production";
+const hostname = "0.0.0.0";
+const port = parseInt(process.env.PORT || "3000", 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET is required');
+  throw new Error("JWT_SECRET is required");
 }
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV || 'development',
-    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || '0.1'),
+    environment: process.env.NODE_ENV || "development",
+    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || "0.1"),
   });
 }
 
@@ -37,49 +37,60 @@ function log(level, message, context = undefined) {
     ...(context ? { context } : {}),
   };
   const line = JSON.stringify(payload);
-  if (level === 'error') {
+  if (level === "error") {
     console.error(line);
-  } else if (level === 'warn') {
+  } else if (level === "warn") {
     console.warn(line);
   } else {
     console.log(line);
   }
 }
 
-process.on('uncaughtException', (error) => {
-  log('error', 'uncaughtException', { error: error.message });
+process.on("uncaughtException", (error) => {
+  log("error", "uncaughtException", { error: error.message });
   if (process.env.SENTRY_DSN) Sentry.captureException(error);
 });
 
-process.on('unhandledRejection', (reason) => {
-  log('error', 'unhandledRejection', {
+process.on("unhandledRejection", (reason) => {
+  log("error", "unhandledRejection", {
     reason: reason instanceof Error ? reason.message : String(reason),
   });
   if (process.env.SENTRY_DSN) {
-    Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
+    Sentry.captureException(
+      reason instanceof Error ? reason : new Error(String(reason)),
+    );
   }
 });
 
 const prisma = new PrismaClient();
-const UPLOAD_ROOT = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
+const UPLOAD_ROOT = path.resolve(
+  process.cwd(),
+  process.env.UPLOAD_DIR || "uploads",
+);
 
 function applySecurityHeaders(res) {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader(
-    'Content-Security-Policy',
+    "Permissions-Policy",
+    "camera=(), geolocation=(), microphone=(self)",
+  );
+  res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+  res.setHeader(
+    "Content-Security-Policy",
     "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; " +
       "img-src 'self' data: blob:; media-src 'self' blob:; " +
       "font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; " +
-      "connect-src 'self' ws: wss: https://cloudflareinsights.com"
+      "connect-src 'self' ws: wss: https://cloudflareinsights.com stun: turn: turns:",
   );
 
-  if (process.env.NODE_ENV === 'production') {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains; preload",
+    );
   }
 }
 
@@ -90,43 +101,49 @@ app.prepare().then(() => {
   const server = createServer((req, res) => {
     applySecurityHeaders(res);
     const parsedUrl = parse(req.url, true);
-    
+
     // Serve uploaded files from ./uploads directory
-    if (parsedUrl.pathname && parsedUrl.pathname.startsWith('/uploads/')) {
-      const relativePath = decodeURIComponent(parsedUrl.pathname.slice('/uploads/'.length));
-      const normalizedRelativePath = path.normalize(relativePath).replace(/^([/\\])+/, '');
+    if (parsedUrl.pathname && parsedUrl.pathname.startsWith("/uploads/")) {
+      const relativePath = decodeURIComponent(
+        parsedUrl.pathname.slice("/uploads/".length),
+      );
+      const normalizedRelativePath = path
+        .normalize(relativePath)
+        .replace(/^([/\\])+/, "");
       const filePath = path.resolve(UPLOAD_ROOT, normalizedRelativePath);
 
       // Block path traversal and invalid paths
       if (
         !relativePath ||
-        relativePath.includes('\0') ||
+        relativePath.includes("\0") ||
         !filePath.startsWith(UPLOAD_ROOT + path.sep)
       ) {
         res.writeHead(403);
-        res.end('Forbidden');
+        res.end("Forbidden");
         return;
       }
 
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const ext = path.extname(filePath).toLowerCase();
         const contentTypes = {
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.gif': 'image/gif',
-          '.webp': 'image/webp',
-          '.mp4': 'video/mp4',
-          '.pdf': 'application/pdf',
-          '.txt': 'text/plain',
+          ".png": "image/png",
+          ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg",
+          ".gif": "image/gif",
+          ".webp": "image/webp",
+          ".mp4": "video/mp4",
+          ".pdf": "application/pdf",
+          ".txt": "text/plain",
         };
-        
-        res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
+
+        res.writeHead(200, {
+          "Content-Type": contentTypes[ext] || "application/octet-stream",
+        });
         fs.createReadStream(filePath).pipe(res);
         return;
       }
     }
-    
+
     handle(req, res, parsedUrl);
   });
 
@@ -149,13 +166,14 @@ app.prepare().then(() => {
   io.use((socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
-      const normalizedToken = typeof token === 'string' && token.trim() ? token.trim() : '';
+      const normalizedToken =
+        typeof token === "string" && token.trim() ? token.trim() : "";
       if (!normalizedToken) {
-        const cookieHeader = socket.handshake.headers?.cookie || '';
+        const cookieHeader = socket.handshake.headers?.cookie || "";
         const tokenMatch = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
         if (!tokenMatch) {
-          log('warn', 'socket.auth.failed', { reason: 'no_token' });
-          return next(new Error('No token'));
+          log("warn", "socket.auth.failed", { reason: "no_token" });
+          return next(new Error("No token"));
         }
         const rawToken = tokenMatch[1];
         const decodedToken = decodeURIComponent(rawToken);
@@ -167,79 +185,79 @@ app.prepare().then(() => {
       next();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      log('warn', 'socket.auth.error', { error: errorMessage });
+      log("warn", "socket.auth.error", { error: errorMessage });
       if (process.env.SENTRY_DSN) Sentry.captureException(err);
       next(new Error(`Auth error: ${errorMessage}`));
     }
   });
 
-  io.on('connection', (socket) => {
+  io.on("connection", (socket) => {
     const userId = socket.user.id;
     const username = socket.user.username;
     const joinedRooms = new Set();
 
-    log('info', 'socket.connected', { userId, username });
+    log("info", "socket.connected", { userId, username });
 
     // Track online
     onlineUsers.set(userId, socket.id);
     socket.join(`user:${userId}`);
-    io.emit('user:online', userId);
+    io.emit("user:online", userId);
 
     // SuperAdmin monitoring room
     if (socket.user.isSuperAdmin) {
-      socket.join('superadmin');
+      socket.join("superadmin");
       // Send current active call info
       if (activeCall) {
-        socket.emit('call:started', activeCall);
+        socket.emit("call:started", activeCall);
       }
       // Send online users count
-      socket.emit('admin:onlineCount', onlineUsers.size);
+      socket.emit("admin:onlineCount", onlineUsers.size);
     }
 
     // --- Room management ---
-    socket.on('room:join', async (roomId) => {
-      if (!roomId || typeof roomId !== 'string') return;
+    socket.on("room:join", async (roomId) => {
+      if (!roomId || typeof roomId !== "string") return;
 
       const membership = await prisma.roomMember.findUnique({
         where: { userId_roomId: { userId, roomId } },
       });
       if (!membership) {
-        return socket.emit('error', 'Forbidden');
+        return socket.emit("error", "Forbidden");
       }
 
       joinedRooms.add(roomId);
       socket.join(`room:${roomId}`);
     });
 
-    socket.on('room:leave', (roomId) => {
+    socket.on("room:leave", (roomId) => {
       joinedRooms.delete(roomId);
       socket.leave(`room:${roomId}`);
     });
 
     // --- Messages ---
-    socket.on('message:send', async (data) => {
-      if (!data?.roomId || typeof data.roomId !== 'string') return;
+    socket.on("message:send", async (data) => {
+      if (!data?.roomId || typeof data.roomId !== "string") return;
 
       const membership = await prisma.roomMember.findUnique({
         where: { userId_roomId: { userId, roomId: data.roomId } },
       });
       if (!membership) {
-        return socket.emit('error', 'Forbidden');
+        return socket.emit("error", "Forbidden");
       }
 
-      log('info', 'socket.message.send', { userId, roomId: data.roomId });
+      log("info", "socket.message.send", { userId, roomId: data.roomId });
       // Broadcast to room members
-      io.to(`room:${data.roomId}`).emit('message:new', {
+      io.to(`room:${data.roomId}`).emit("message:new", {
         ...data,
         userId,
         username,
         createdAt: new Date().toISOString(),
       });
-      log('info', 'socket.message.broadcast', { roomId: data.roomId });
+      log("info", "socket.message.broadcast", { roomId: data.roomId });
     });
 
-    socket.on('message:typing', async (roomId) => {
-      if (!roomId || typeof roomId !== 'string') return;
+    socket.on("message:typing", async (roomId) => {
+      if (!roomId || typeof roomId !== "string") return;
       if (!joinedRooms.has(roomId)) return;
 
       const membership = await prisma.roomMember.findUnique({
@@ -247,13 +265,13 @@ app.prepare().then(() => {
       });
       if (!membership) return;
 
-      socket.to(`room:${roomId}`).emit('message:typing', username);
+      socket.to(`room:${roomId}`).emit("message:typing", username);
     });
 
-    socket.on('message:read', async ({ messageId, roomId }) => {
-      if (!roomId || typeof roomId !== 'string') return;
+    socket.on("message:read", async ({ messageId, roomId }) => {
+      if (!roomId || typeof roomId !== "string") return;
       if (!joinedRooms.has(roomId)) return;
-      if (!messageId || typeof messageId !== 'string') return;
+      if (!messageId || typeof messageId !== "string") return;
 
       const membership = await prisma.roomMember.findUnique({
         where: { userId_roomId: { userId, roomId } },
@@ -266,37 +284,48 @@ app.prepare().then(() => {
           select: { id: true, roomId: true, readBy: true },
         });
         if (!message || message.roomId !== roomId) return;
-        const readByUsers = (message.readBy || '')
+        const readByUsers = (message.readBy || "")
           .split(/[,\s;]+/)
           .map((item) => item.trim())
           .filter(Boolean);
         const readBySet = new Set(readByUsers);
         readBySet.add(userId);
-        const nextReadBy = Array.from(readBySet).join(',');
-        if (nextReadBy !== (message.readBy || '')) {
+        const nextReadBy = Array.from(readBySet).join(",");
+        if (nextReadBy !== (message.readBy || "")) {
           await prisma.message.update({
             where: { id: messageId },
             data: { readBy: nextReadBy },
           });
         }
-        io.to(`room:${roomId}`).emit('message:read', { messageId, userId, readBy: nextReadBy });
+        io.to(`room:${roomId}`).emit("message:read", {
+          messageId,
+          userId,
+          readBy: nextReadBy,
+        });
       } catch (error) {
-        log('warn', 'socket.message.read.error', { messageId, roomId, error: error instanceof Error ? error.message : String(error) });
+        log("warn", "socket.message.read.error", {
+          messageId,
+          roomId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     });
 
     // --- Voice Calls (1 at a time) ---
-    socket.on('call:initiate', async ({ calleeId }) => {
+    socket.on("call:initiate", async ({ calleeId }) => {
       if (activeCall) {
-        return socket.emit('call:error', 'A call is already active. Please wait.');
+        return socket.emit(
+          "call:error",
+          "A call is already active. Please wait.",
+        );
       }
-      if (!calleeId || typeof calleeId !== 'string') {
-        return socket.emit('call:error', 'Invalid callee');
+      if (!calleeId || typeof calleeId !== "string") {
+        return socket.emit("call:error", "Invalid callee");
       }
 
       const privateRoom = await prisma.room.findFirst({
         where: {
-          type: 'PRIVATE',
+          type: "PRIVATE",
           AND: [
             { members: { some: { userId } } },
             { members: { some: { userId: calleeId } } },
@@ -305,7 +334,7 @@ app.prepare().then(() => {
         select: { id: true },
       });
       if (!privateRoom) {
-        return socket.emit('call:error', 'No private room with target user');
+        return socket.emit("call:error", "No private room with target user");
       }
 
       const logId = `call-${Date.now()}`; // simplified ID
@@ -317,87 +346,112 @@ app.prepare().then(() => {
         startedAt: new Date().toISOString(),
       };
 
-      socket.emit('call:initiated', {
+      socket.emit("call:initiated", {
         logId,
         calleeId,
       });
 
       // Notify callee
-      io.to(`user:${calleeId}`).emit('call:incoming', {
+      io.to(`user:${calleeId}`).emit("call:incoming", {
         callerId: userId,
         callerName: username,
         logId,
       });
 
       // Notify superadmin
-      io.to('superadmin').emit('call:started', activeCall);
+      io.to("superadmin").emit("call:started", activeCall);
     });
 
-    socket.on('call:accept', ({ logId }) => {
+    socket.on("call:accept", ({ logId }) => {
       if (activeCall && activeCall.logId === logId) {
-        if (![activeCall.callerId, activeCall.calleeId].includes(userId)) return;
-        activeCall.status = 'ACTIVE';
-        io.to(`user:${activeCall.callerId}`).emit('call:accepted', { logId });
-        io.to('superadmin').emit('call:updated', { ...activeCall, status: 'ACTIVE' });
+        if (![activeCall.callerId, activeCall.calleeId].includes(userId))
+          return;
+        activeCall.status = "ACTIVE";
+        io.to(`user:${activeCall.callerId}`).emit("call:accepted", { logId });
+        io.to("superadmin").emit("call:updated", {
+          ...activeCall,
+          status: "ACTIVE",
+        });
       }
     });
 
-    socket.on('call:end', ({ logId }) => {
-      if (!activeCall || ![activeCall.callerId, activeCall.calleeId].includes(userId)) return;
-      endCall(logId, 'ENDED');
+    socket.on("call:end", ({ logId }) => {
+      if (
+        !activeCall ||
+        ![activeCall.callerId, activeCall.calleeId].includes(userId)
+      )
+        return;
+      endCall(logId, "ENDED");
     });
 
-    socket.on('call:reject', ({ logId }) => {
-      if (!activeCall || ![activeCall.callerId, activeCall.calleeId].includes(userId)) return;
-      endCall(logId, 'REJECTED');
+    socket.on("call:reject", ({ logId }) => {
+      if (
+        !activeCall ||
+        ![activeCall.callerId, activeCall.calleeId].includes(userId)
+      )
+        return;
+      endCall(logId, "REJECTED");
     });
 
     // WebRTC signaling
-    socket.on('call:signal', ({ targetUserId, signal }) => {
+    socket.on("call:signal", ({ targetUserId, signal }) => {
       if (!activeCall) return;
       const inCall = [activeCall.callerId, activeCall.calleeId];
       if (!inCall.includes(userId) || !inCall.includes(targetUserId)) return;
 
-      io.to(`user:${targetUserId}`).emit('call:signal', {
+      io.to(`user:${targetUserId}`).emit("call:signal", {
         fromUserId: userId,
         signal,
       });
     });
 
     // SuperAdmin: terminate call
-    socket.on('call:terminate', ({ logId }) => {
+    socket.on("call:terminate", ({ logId }) => {
       if (!socket.user.isSuperAdmin) {
-        return socket.emit('error', 'Forbidden');
+        return socket.emit("error", "Forbidden");
       }
-      endCall(logId, 'TERMINATED');
+      endCall(logId, "TERMINATED");
     });
 
     // Disconnect
-    socket.on('disconnect', () => {
+    socket.on("disconnect", () => {
       onlineUsers.delete(userId);
-      io.emit('user:offline', userId);
-      io.to('superadmin').emit('admin:onlineCount', onlineUsers.size);
+      io.emit("user:offline", userId);
+      io.to("superadmin").emit("admin:onlineCount", onlineUsers.size);
 
       // End call if participant disconnects
-      if (activeCall && (activeCall.callerId === userId || activeCall.calleeId === userId)) {
-        endCall(activeCall.logId, 'ENDED');
+      if (
+        activeCall &&
+        (activeCall.callerId === userId || activeCall.calleeId === userId)
+      ) {
+        endCall(activeCall.logId, "ENDED");
       }
     });
   });
 
   function endCall(logId, status) {
     if (activeCall && activeCall.logId === logId) {
-      const endedCall = { ...activeCall, status, endedAt: new Date().toISOString() };
+      const endedCall = {
+        ...activeCall,
+        status,
+        endedAt: new Date().toISOString(),
+      };
 
-      io.to(`user:${activeCall.callerId}`).emit('call:ended', { logId, status });
-      io.to(`user:${activeCall.calleeId}`).emit('call:ended', { logId, status });
-      io.to('superadmin').emit('call:ended', endedCall);
+      io.to(`user:${activeCall.callerId}`).emit("call:ended", {
+        logId,
+        status,
+      });
+      io.to(`user:${activeCall.calleeId}`).emit("call:ended", {
+        logId,
+        status,
+      });
+      io.to("superadmin").emit("call:ended", endedCall);
 
       activeCall = null;
     }
   }
 
   server.listen(port, hostname, () => {
-    log('info', 'server.started', { url: `http://${hostname}:${port}` });
+    log("info", "server.started", { url: `http://${hostname}:${port}` });
   });
 });
