@@ -35,6 +35,7 @@ const EXT_TO_MIME: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.jfif': 'image/jpeg',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.mp4': 'video/mp4',
@@ -103,15 +104,18 @@ export async function POST(req: NextRequest) {
     }
 
     const originalExt = path.extname(file.name).toLowerCase();
-    const expectedMime = EXT_TO_MIME[originalExt];
-    if (!expectedMime || expectedMime !== file.type) {
-      return NextResponse.json({ error: 'Invalid file extension or MIME type' }, { status: 400 });
+    const expectedMime = originalExt ? EXT_TO_MIME[originalExt] : null;
+    if (originalExt && !expectedMime) {
+      return NextResponse.json({ error: 'Invalid file extension' }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const detectedType = detectFileType(buffer);
     if (!detectedType || detectedType !== file.type) {
       return NextResponse.json({ error: 'File content does not match declared type' }, { status: 400 });
+    }
+    if (expectedMime && expectedMime !== detectedType) {
+      return NextResponse.json({ error: 'File extension does not match file content' }, { status: 400 });
     }
 
     // Ensure upload directory exists

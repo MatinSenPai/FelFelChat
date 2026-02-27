@@ -50,6 +50,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
+  const parseResponseBody = useCallback(async (res: Response): Promise<Record<string, unknown>> => {
+    const text = await res.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return { error: 'serverError', debug: text };
+    }
+  }, []);
+
   const login = useCallback(async (username: string, password: string) => {
     try {
       const res = await fetch('/api/auth/login', {
@@ -58,20 +68,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json();
+      const data = await parseResponseBody(res);
 
       if (!res.ok) {
-        return { error: data.error || 'serverError' };
+        const apiError = typeof data.error === 'string' ? data.error : 'serverError';
+        const debug = typeof data.debug === 'string' ? data.debug : '';
+        if (debug) {
+          console.error('Login API error:', debug);
+        } else {
+          console.error('Login API error response:', data);
+        }
+        return { error: apiError };
       }
 
-      setUser(data.user);
-      // Use window.location.href to do a full page reload so the cookie is included
+      const nextUser = (data as { user?: User }).user;
+      if (nextUser) {
+        setUser(nextUser);
+      }
       window.location.href = '/';
       return {};
-    } catch {
+    } catch (caught) {
+      console.error('Login request failed:', caught);
       return { error: 'serverError' };
     }
-  }, []);
+  }, [parseResponseBody]);
 
   const signup = useCallback(async (username: string, password: string, displayName?: string) => {
     try {
@@ -81,20 +101,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ username, password, displayName }),
       });
 
-      const data = await res.json();
+      const data = await parseResponseBody(res);
 
       if (!res.ok) {
-        return { error: data.error || 'serverError' };
+        const apiError = typeof data.error === 'string' ? data.error : 'serverError';
+        const debug = typeof data.debug === 'string' ? data.debug : '';
+        if (debug) {
+          console.error('Signup API error:', debug);
+        } else {
+          console.error('Signup API error response:', data);
+        }
+        return { error: apiError };
       }
 
-      setUser(data.user);
-      // Use window.location.href to do a full page reload so the cookie is included
+      const nextUser = (data as { user?: User }).user;
+      if (nextUser) {
+        setUser(nextUser);
+      }
       window.location.href = '/';
       return {};
-    } catch {
+    } catch (caught) {
+      console.error('Signup request failed:', caught);
       return { error: 'serverError' };
     }
-  }, []);
+  }, [parseResponseBody]);
 
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' });

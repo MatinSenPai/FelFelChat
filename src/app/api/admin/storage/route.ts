@@ -14,17 +14,26 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-// GET — storage stats
+async function getMongoDbSizeBytes(): Promise<number> {
+  try {
+    const dbStatsRaw = await prisma.$runCommandRaw({ dbStats: 1 });
+    const dbStats = dbStatsRaw as Record<string, unknown>;
+    const dbSizeCandidate = dbStats.storageSize ?? dbStats.dataSize ?? dbStats.totalSize ?? 0;
+    const dbSize = Number(typeof dbSizeCandidate === 'number' ? dbSizeCandidate : 0);
+    return Number.isFinite(dbSize) ? dbSize : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const auth = requireSuperAdmin(req);
     if (!auth.ok) return auth.response;
 
-    const dbPath = path.resolve(process.cwd(), 'prisma/dev.db');
     const uploadsDir = process.env.UPLOAD_DIR || './uploads';
     const backupsDir = process.env.BACKUP_DIR || './backups';
-
-    const dbSize = existsSync(dbPath) ? statSync(dbPath).size : 0;
+    const dbSize = await getMongoDbSizeBytes();
 
     let uploadsSize = 0;
     let uploadsCount = 0;
@@ -34,7 +43,7 @@ export async function GET(req: NextRequest) {
         try {
           const s = statSync(path.join(uploadsDir, f));
           if (s.isFile()) { uploadsSize += s.size; uploadsCount++; }
-        } catch { /* skip */ }
+        } catch {}
       }
     }
 
@@ -44,7 +53,7 @@ export async function GET(req: NextRequest) {
       for (const f of files) {
         try {
           backupsSize += statSync(path.join(backupsDir, f)).size;
-        } catch { /* skip */ }
+        } catch {}
       }
     }
 
@@ -55,9 +64,8 @@ export async function GET(req: NextRequest) {
       totalDisk = parseInt(parts[1] || '0');
       usedDisk = parseInt(parts[2] || '0');
       freeDisk = parseInt(parts[3] || '0');
-    } catch { /* skip */ }
+    } catch {}
 
-    // Per-room storage
     const roomStats = await prisma.room.findMany({
       select: {
         id: true,
@@ -84,7 +92,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST — cleanup actions
 export async function POST(req: NextRequest) {
   try {
     const auth = requireSuperAdmin(req);
@@ -97,7 +104,6 @@ export async function POST(req: NextRequest) {
         const days = params?.days || 30;
         const cutoff = new Date(Date.now() - days * 86400000);
 
-        // Delete associated files
         const oldMessages = await prisma.message.findMany({
           where: { createdAt: { lt: cutoff }, fileUrl: { not: null } },
           select: { fileUrl: true },
@@ -105,7 +111,7 @@ export async function POST(req: NextRequest) {
         for (const msg of oldMessages) {
           if (msg.fileUrl) {
             const filePath = path.join(process.cwd(), msg.fileUrl);
-            if (existsSync(filePath)) try { unlinkSync(filePath); } catch { /* skip */ }
+            if (existsSync(filePath)) try { unlinkSync(filePath); } catch {}
           }
         }
 
@@ -130,7 +136,7 @@ export async function POST(req: NextRequest) {
         for (const msg of filesInRoom) {
           if (msg.fileUrl) {
             const filePath = path.join(process.cwd(), msg.fileUrl);
-            if (existsSync(filePath)) try { unlinkSync(filePath); } catch { /* skip */ }
+            if (existsSync(filePath)) try { unlinkSync(filePath); } catch {}
           }
         }
 
@@ -146,14 +152,23 @@ export async function POST(req: NextRequest) {
       }
 
       case 'vacuum': {
-        await prisma.$executeRawUnsafe('VACUUM');
+        const collections = ['User', 'Room', 'VoiceCall', 'Settings', 'Sticker', 'Gif', 'RoomMember', 'Message', 'CallLog', 'BackupLog'];
+        let compactedCollections = 0;
+        for (const collection of collections) {
+          try {
+            await prisma.$runCommandRaw({ compact: collection });
+            compactedCollections += 1;
+          } catch {}
+        }
+        await prisma.$runCommandRaw({ dbStats: 1 });
         await logAdminAction(req, {
           adminUserId: auth.user.id,
           action: 'admin.storage.vacuum',
           targetType: 'database',
           targetId: 'main',
+          details: { compactedCollections },
         });
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, compactedCollections });
       }
 
       default:

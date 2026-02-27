@@ -22,6 +22,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'auth.logout': 'خروج',
     'auth.banned': 'حساب شما مسدود شده است',
     'auth.invalidCredentials': 'نام کاربری یا رمز عبور اشتباهه',
+    'auth.serverError': 'خطای سرور. لطفاً دوباره تلاش کنید.',
+    'auth.databaseError': 'ارتباط با دیتابیس دچار مشکل شد.',
+    'auth.jwtSecretMissing': 'پیکربندی احراز هویت ناقص است (JWT_SECRET).',
     'auth.usernameTaken': 'این نام کاربری قبلاً استفاده شده',
     'auth.passwordMismatch': 'رمز عبور مطابقت نداره',
     'auth.usernameMin': 'نام کاربری باید حداقل ۳ کاراکتر باشه',
@@ -176,8 +179,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'backup.restoreSuccess': 'بازیابی با موفقیت انجام شد',
 
     // Storage
-    'storage.warning': '⚠️ فضای خالی کمه!',
-    'storage.critical': '🔴 فضا بحرانیه! آپلود غیرفعال شد.',
+    'storage.warning': 'فضای خالی کمه!',
+    'storage.critical': 'فضا بحرانیه! آپلود غیرفعال شد.',
     'storage.total': 'کل دیسک',
     'storage.used': 'مصرف‌شده',
     'storage.free': 'خالی',
@@ -221,6 +224,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'auth.logout': 'Logout',
     'auth.banned': 'Your account has been banned',
     'auth.invalidCredentials': 'Invalid username or password',
+    'auth.serverError': 'Server error. Please try again.',
+    'auth.databaseError': 'Database connection failed.',
+    'auth.jwtSecretMissing': 'Server auth is misconfigured (JWT_SECRET).',
     'auth.usernameTaken': 'Username already taken',
     'auth.passwordMismatch': 'Passwords do not match',
     'auth.usernameMin': 'Username must be at least 3 characters',
@@ -374,8 +380,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'backup.restoreSuccess': 'Restore completed successfully',
 
     // Storage
-    'storage.warning': '⚠️ Low disk space!',
-    'storage.critical': '🔴 Critical disk space! Uploads disabled.',
+    'storage.warning': 'Low disk space!',
+    'storage.critical': 'Critical disk space! Uploads disabled.',
     'storage.total': 'Total Disk',
     'storage.used': 'Used',
     'storage.free': 'Free',

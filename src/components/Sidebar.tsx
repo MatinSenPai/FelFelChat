@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Locale } from '@/lib/i18n';
 import Image from 'next/image';
+import AppIcon from './AppIcon';
 
 interface User {
   id: string;
@@ -26,6 +27,8 @@ interface Room {
 interface SidebarProps {
   user: User;
   rooms: Room[];
+  roomsLoading: boolean;
+  unreadByRoom: Record<string, number>;
   activeRoomId: string | null;
   onlineUsers: Set<string>;
   onSelectRoom: (id: string) => void;
@@ -66,6 +69,8 @@ function timeAgo(dateStr: string) {
 export default function Sidebar({
   user,
   rooms,
+  roomsLoading,
+  unreadByRoom,
   activeRoomId,
   onlineUsers,
   onSelectRoom,
@@ -81,6 +86,7 @@ export default function Sidebar({
   const [showNewChat, setShowNewChat] = useState(false);
   const [users, setUsers] = useState<{ id: string; username: string; displayName: string | null }[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const brandLogoSrc = '/favicon.ico';
   const filteredRooms = rooms.filter((room) =>
     getPrivateRoomName(room).toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -116,47 +122,43 @@ export default function Sidebar({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: 'var(--sidebar-width)' }}>
+    <div className="sidebar-root">
       {/* Header */}
-      <div style={{
-        padding: '16px 20px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: '1px solid var(--bg-tertiary)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 24 }}>🌶️</span>
-          <span style={{
-            fontSize: 18, fontWeight: 700,
-            background: 'var(--accent-gradient)', WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent', backgroundClip: 'text',
-          }}>
-            {t('app.name')}
-          </span>
-        </div>
-        <div className="lang-toggle">
-          <button className={locale === 'fa' ? 'active' : ''} onClick={() => setLocale('fa')}>FA</button>
-          <button className={locale === 'en' ? 'active' : ''} onClick={() => setLocale('en')}>EN</button>
+      <div className="sidebar-header">
+        <div className="sidebar-brand-row">
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Image
+              src={brandLogoSrc}
+              alt={t('app.name')}
+              width={110}
+              height={30}
+              unoptimized
+              style={{ width: 98, height: 'auto', objectFit: 'contain' }}
+            />
+          </div>
+          <div className="lang-toggle">
+            <button className={locale === 'fa' ? 'active' : ''} onClick={() => setLocale('fa')}>FA</button>
+            <button className={locale === 'en' ? 'active' : ''} onClick={() => setLocale('en')}>EN</button>
+          </div>
         </div>
       </div>
 
       {/* Search */}
-      <div style={{ padding: '12px 16px' }}>
+      <div className="sidebar-search-wrap">
         <input
           className="input"
           placeholder={t('chat.searchMessages')}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ fontSize: 13 }}
+          style={{ fontSize: 13, height: 40, borderRadius: 9999, paddingInline: 14 }}
         />
       </div>
 
       {/* New Chat Button */}
-      <div style={{ padding: '0 16px 8px' }}>
+      <div style={{ padding: '0 14px 8px' }}>
         <button
           className="btn btn-primary btn-sm"
-          style={{ width: '100%' }}
+          style={{ width: '100%', borderRadius: 12, height: 40 }}
           onClick={() => {
             setShowNewChat(!showNewChat);
             if (!showNewChat) searchUsers('');
@@ -169,14 +171,14 @@ export default function Sidebar({
       {/* New Chat Modal */}
       {showNewChat && (
         <div style={{
-          padding: '0 16px 12px',
-          borderBottom: '1px solid var(--bg-tertiary)',
+          padding: '0 14px 12px',
+          borderBottom: '1px solid rgba(255, 146, 108, 0.15)',
         }}>
           <input
             className="input"
             placeholder={t('chat.searchUsers')}
             onChange={(e) => searchUsers(e.target.value)}
-            style={{ fontSize: 13, marginBottom: 8 }}
+            style={{ fontSize: 13, marginBottom: 8, height: 40, borderRadius: 12 }}
             autoFocus
           />
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
@@ -219,8 +221,18 @@ export default function Sidebar({
       )}
 
       {/* Room List */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {filteredRooms.length === 0 ? (
+      <div className="sidebar-rooms">
+        {roomsLoading ? (
+          Array.from({ length: 7 }).map((_, index) => (
+            <div key={`room-skeleton-${index}`} className="sidebar-room" style={{ pointerEvents: 'none', opacity: 0.7 }}>
+              <div className="avatar" style={{ background: 'rgba(255, 132, 96, 0.2)' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ height: 11, width: `${62 + ((index * 7) % 20)}%`, borderRadius: 9999, background: 'rgba(255, 132, 96, 0.28)' }} />
+                <div style={{ marginTop: 8, height: 9, width: `${45 + ((index * 11) % 30)}%`, borderRadius: 9999, background: 'rgba(255, 132, 96, 0.14)' }} />
+              </div>
+            </div>
+          ))
+        ) : filteredRooms.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--fg-muted)', fontSize: 14 }}>
             {t('chat.noRooms')}
           </div>
@@ -229,6 +241,9 @@ export default function Sidebar({
             const roomName = getPrivateRoomName(room);
             const lastMsg = room.messages[0];
             const isActive = room.id === activeRoomId;
+            const unreadCount = unreadByRoom[room.id] || 0;
+            const isEncryptedPreview = typeof lastMsg?.text === 'string' && lastMsg.text.startsWith('hush:v1:');
+            const lastPreviewText = isEncryptedPreview ? 'Encrypted message' : (lastMsg?.text || t('chat.attachFile'));
 
             // Check if any member in a private room is online
             const otherMember = room.type === 'PRIVATE'
@@ -236,22 +251,13 @@ export default function Sidebar({
               : null;
             const isOnline = otherMember ? onlineUsers.has(otherMember.user.id) : false;
 
-            const typeIcon = room.type === 'CHANNEL' ? '📢' : room.type === 'GROUP' ? '👥' : '';
+            const typeIconName = room.type === 'CHANNEL' ? 'channel' : room.type === 'GROUP' ? 'group' : null;
 
             return (
               <div
                 key={room.id}
                 onClick={() => onSelectRoom(room.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '12px 16px',
-                  cursor: 'pointer',
-                  background: isActive ? 'var(--bg-hover)' : 'transparent',
-                  borderInlineStart: isActive ? '3px solid var(--accent)' : '3px solid transparent',
-                  transition: 'all 0.15s',
-                }}
-                onMouseOver={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                onMouseOut={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                className={`sidebar-room${isActive ? ' active' : ''}`}
               >
                 <div style={{ position: 'relative' }}>
                   {room.profilePhotoUrl ? (
@@ -269,7 +275,7 @@ export default function Sidebar({
                       className="avatar"
                       style={{ background: getAvatarColor(roomName) }}
                     >
-                      {typeIcon || getInitials(roomName)}
+                      {typeIconName ? <AppIcon name={typeIconName} size={20} /> : getInitials(roomName)}
                     </div>
                   )}
                   {room.type === 'PRIVATE' && (
@@ -290,8 +296,15 @@ export default function Sidebar({
                       {roomName}
                     </span>
                     {lastMsg && (
-                      <span style={{ fontSize: 11, color: 'var(--fg-muted)', flexShrink: 0 }}>
-                        {timeAgo(lastMsg.createdAt)}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
+                          {timeAgo(lastMsg.createdAt)}
+                        </span>
+                        {unreadCount > 0 && (
+                          <span className="badge-count" style={{ minWidth: 18, height: 18, fontSize: 10, paddingInline: 5 }}>
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        )}
                       </span>
                     )}
                   </div>
@@ -304,7 +317,7 @@ export default function Sidebar({
                       {room.type !== 'PRIVATE' && (
                         <span style={{ color: 'var(--fg-secondary)' }}>{lastMsg.user.username}: </span>
                       )}
-                      {lastMsg.text || '📎 File'}
+                      {lastPreviewText}
                     </div>
                   )}
                 </div>
@@ -315,11 +328,7 @@ export default function Sidebar({
       </div>
 
       {/* User Info Footer */}
-      <div style={{
-        padding: '12px 16px',
-        borderTop: '1px solid var(--bg-tertiary)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
+      <div className="sidebar-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div
           style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
           onClick={() => router.push('/profile')}
@@ -357,11 +366,11 @@ export default function Sidebar({
         <div style={{ display: 'flex', gap: 4 }}>
           {user.isSuperAdmin && (
             <a href="/admin" className="btn btn-ghost btn-icon btn-sm" title={t('admin.panel')}>
-              ⚙️
+              <AppIcon name="settings" size={16} />
             </a>
           )}
           <button className="btn btn-ghost btn-icon btn-sm" onClick={onLogout} title={t('auth.logout')}>
-            🚪
+            <AppIcon name="logout" size={16} />
           </button>
         </div>
       </div>

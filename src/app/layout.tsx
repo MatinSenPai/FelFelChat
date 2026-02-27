@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { I18nProvider } from "@/components/providers/I18nProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
-import { Inter, Vazirmatn } from "next/font/google";
+import { Sora, Vazirmatn } from "next/font/google";
 
-const inter = Inter({
+const sora = Sora({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-inter",
+  variable: "--font-sora",
   display: "swap",
 });
 
@@ -19,8 +19,8 @@ const vazirmatn = Vazirmatn({
 });
 
 export const metadata: Metadata = {
-  title: "FelFel Chat! | فلفل چت",
-  description: "Secure & lightweight chat — چت امن و سبک",
+  title: "FelFel Chat",
+  description: "Secure and modern real-time messaging",
 };
 
 export default function RootLayout({
@@ -31,13 +31,11 @@ export default function RootLayout({
   return (
     <html lang="fa" dir="rtl" suppressHydrationWarning>
       <body
-        className={`${vazirmatn.variable} ${inter.variable}`}
-        style={{ fontFamily: "var(--font-vazirmatn), var(--font-inter), sans-serif" }}
+        className={`${vazirmatn.variable} ${sora.variable}`}
+        style={{ fontFamily: "var(--font-vazirmatn), var(--font-sora), sans-serif" }}
       >
         <I18nProvider>
-          <AuthProvider>
-            {children}
-          </AuthProvider>
+          <AuthProvider>{children}</AuthProvider>
         </I18nProvider>
       </body>
     </html>

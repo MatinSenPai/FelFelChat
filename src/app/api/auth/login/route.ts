@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     let password: string | null = null;
 
     const contentType = req.headers.get('content-type') || '';
-    
+
     if (contentType.includes('application/json')) {
       // Handle JSON payload (from fetch)
       const body = await req.json();
@@ -72,9 +72,10 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    const isHttps = (process.env.APP_ORIGIN || '').startsWith('https');
     response.cookies.set('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps,
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7,
       path: '/',
@@ -82,8 +83,20 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (error) {
-    logError('api.auth.login.error', { error: String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    logError('api.auth.login.error', { error: message, stack });
     captureServerException(error, { route: '/api/auth/login' });
-    return NextResponse.json({ error: 'serverError' }, { status: 500 });
+    const includeDebug = process.env.NODE_ENV !== 'production' || process.env.FELFEL_DEBUG_ERRORS === '1';
+    let errorCode = 'serverError';
+    if (message.includes('JWT_SECRET')) {
+      errorCode = 'jwtSecretMissing';
+    } else if (message.includes('Prisma') || message.includes('Mongo') || message.includes('P10')) {
+      errorCode = 'databaseError';
+    }
+    return NextResponse.json(
+      includeDebug ? { error: errorCode, debug: message } : { error: errorCode },
+      { status: 500 }
+    );
   }
 }

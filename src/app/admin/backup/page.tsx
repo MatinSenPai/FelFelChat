@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
+import AppIcon from '@/components/AppIcon';
 
 interface BackupItem {
   filename: string;
@@ -80,8 +81,16 @@ export default function AdminBackupPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', direction: dir }}>
       <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bg-tertiary)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Link href="/admin" className="btn btn-ghost btn-sm">← {t('common.back')}</Link>
-        <h1 style={{ fontSize: 18, fontWeight: 700 }}>📦 {t('admin.backup')}</h1>
+        <Link href="/admin" className="btn btn-ghost btn-sm">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AppIcon name="arrowLeft" size={14} />
+            <span>{t('common.back')}</span>
+          </span>
+        </Link>
+        <h1 style={{ fontSize: 18, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <AppIcon name="backup" size={18} />
+          <span>{t('admin.backup')}</span>
+        </h1>
       </div>
       <div style={{ padding: 24 }}>
         {/* Create Backup */}
@@ -133,7 +142,7 @@ export default function AdminBackupPage() {
                           {t('backup.restore')}
                         </button>
                         <button className="btn btn-ghost btn-sm" onClick={() => deleteBackup(b.filename)}>
-                          🗑
+                          <AppIcon name="trash" size={14} />
                         </button>
                       </div>
                     </td>

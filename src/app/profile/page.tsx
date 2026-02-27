@@ -6,6 +6,28 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useI18n } from '@/components/providers/I18nProvider';
 import { compressAvatar } from '@/lib/imageCompression';
 import Image from 'next/image';
+import AppIcon from '@/components/AppIcon';
+
+function getUploadExtensionByMime(mimeType: string): string {
+  switch (mimeType) {
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/gif':
+      return 'gif';
+    case 'image/webp':
+      return 'webp';
+    case 'video/mp4':
+      return 'mp4';
+    case 'application/pdf':
+      return 'pdf';
+    case 'text/plain':
+      return 'txt';
+    default:
+      return 'bin';
+  }
+}
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -34,7 +56,9 @@ export default function ProfilePage() {
       const compressed = await compressAvatar(file);
 
       const formData = new FormData();
-      formData.append('file', compressed);
+      const ext = getUploadExtensionByMime(compressed.type || file.type);
+      const uploadName = `avatar-${Date.now()}.${ext}`;
+      formData.append('file', compressed, uploadName);
 
       const res = await fetch('/api/upload', { method: 'POST', body: formData });
       const data = await res.json();
@@ -91,7 +115,10 @@ export default function ProfilePage() {
         }}
       >
         <button className="btn btn-ghost btn-sm" onClick={() => router.push('/')}>
-          ← {t('common.back')}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AppIcon name="arrowLeft" size={14} />
+            <span>{t('common.back')}</span>
+          </span>
         </button>
         <h1 style={{ fontSize: 18, fontWeight: 700 }}>Profile Settings</h1>
       </div>
@@ -138,7 +165,12 @@ export default function ProfilePage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
             >
-              {uploading ? 'Uploading...' : '📷 Change Avatar'}
+              {uploading ? 'Uploading...' : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <AppIcon name="camera" size={15} />
+                  <span>Change Avatar</span>
+                </span>
+              )}
             </button>
           </div>
 
@@ -182,7 +214,12 @@ export default function ProfilePage() {
 
           {/* Save Button */}
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : '💾 Save Profile'}
+            {saving ? 'Saving...' : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <AppIcon name="save" size={16} />
+                <span>Save Profile</span>
+              </span>
+            )}
           </button>
         </div>
       </div>

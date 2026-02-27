@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
+import { getSocketServer } from '@/lib/socketServer';
 
 // GET /api/rooms — list rooms for current user
 export async function GET(req: NextRequest) {
@@ -41,7 +42,8 @@ export async function POST(req: NextRequest) {
     const user = verifyToken(token || '');
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { name, type, memberIds } = await req.json();
+    const body = await req.json() as { name?: string; type?: string; memberIds?: string[] };
+    const { name, type, memberIds } = body;
 
     // GROUP and CHANNEL: superadmin only
     if ((type === 'GROUP' || type === 'CHANNEL') && !user.isSuperAdmin) {
@@ -93,6 +95,21 @@ export async function POST(req: NextRequest) {
         },
       },
     });
+
+    try {
+      const io = getSocketServer();
+      if (io) {
+        const roomMembers = await prisma.roomMember.findMany({
+          where: { roomId: room.id },
+          select: { userId: true },
+        });
+        for (const member of roomMembers) {
+          io.to(`user:${member.userId}`).emit('room:new', { roomId: room.id, type: room.type });
+        }
+      }
+    } catch (socketError) {
+      console.error('POST /api/rooms socket emit error:', socketError);
+    }
 
     return NextResponse.json({ room }, { status: 201 });
   } catch (error) {

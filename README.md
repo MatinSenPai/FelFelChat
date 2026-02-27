@@ -1,12 +1,12 @@
 # FelFel Chat
 
-FelFel Chat is a real-time chat application built with Next.js, Prisma (SQLite), and Socket.IO.
+FelFel Chat is a real-time chat application built with Next.js, Prisma (MongoDB), and Socket.IO.
 
 ## Stack
 - Next.js (App Router) + TypeScript
-- Prisma + SQLite
+- Prisma + MongoDB
 - Socket.IO (custom `server.mjs`)
-- JWT auth (HTTP-only cookie)
+- JWT auth (HTTP/HTTPS cookie)
 
 ## Features
 - Private chats, groups, channels
@@ -39,6 +39,8 @@ Minimum required:
 - `BACKUP_SIGNING_KEY`
 
 See `.env.example` for the full list.
+For local single-node MongoDB, use a replica-set connection string such as:
+- `DATABASE_URL=mongodb://127.0.0.1:27017/felfelchat?replicaSet=rs0&directConnection=true`
 
 ## One-Line Installer (GitHub Raw)
 You can install and deploy with a single command:
@@ -52,7 +54,7 @@ Installer behavior:
 - enforce/upgrade to Node.js `20+` before `npm ci` (required by Next.js 16)
 - non-interactive one-shot mode for `curl | bash` (uses sane defaults, no blocking prompts)
 - ask required values interactively (path/port/origin), and auto-generate secrets
-- run `npm ci`, `prisma migrate deploy`, `npm run build`
+- run `npm ci`, `prisma db push`, `npm run build`
 - install/start `systemd` service when available (or fallback `nohup`)
 - install global `felfel` command
 
@@ -74,7 +76,7 @@ felfel
 - start/stop/restart
 - live logs
 - health/readiness checks
-- full deploy (pull + install + migrate + build + restart)
+- full deploy (pull + install + db-sync + build + restart)
 - setup wizard for env/port/origin/secrets
 - backup/restore
 - launcher repair
@@ -130,9 +132,9 @@ npm install
 cp .env.example .env
 ```
 
-3. Run migrations:
+3. Sync Prisma schema:
 ```bash
-npx prisma migrate deploy
+npx prisma db push
 ```
 
 4. Start dev server:

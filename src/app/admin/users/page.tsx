@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
+import AppIcon from '@/components/AppIcon';
 
 interface UserItem {
   id: string;
@@ -49,8 +50,16 @@ export default function AdminUsersPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', direction: dir }}>
       <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bg-tertiary)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Link href="/admin" className="btn btn-ghost btn-sm">← {t('common.back')}</Link>
-        <h1 style={{ fontSize: 18, fontWeight: 700 }}>👤 {t('admin.users')}</h1>
+        <Link href="/admin" className="btn btn-ghost btn-sm">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AppIcon name="arrowLeft" size={14} />
+            <span>{t('common.back')}</span>
+          </span>
+        </Link>
+        <h1 style={{ fontSize: 18, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <AppIcon name="user" size={18} />
+          <span>{t('admin.users')}</span>
+        </h1>
       </div>
       <div style={{ padding: 24 }}>
         <input className="input" placeholder={t('common.search')} value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 400, marginBottom: 20 }} />
@@ -72,7 +81,12 @@ export default function AdminUsersPage() {
               <tbody>
                 {filtered.map((u) => (
                   <tr key={u.id}>
-                    <td style={{ fontWeight: 500 }}>@{u.username}{u.isSuperAdmin && ' 👑'}</td>
+                    <td style={{ fontWeight: 500 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <span>@{u.username}</span>
+                        {u.isSuperAdmin && <AppIcon name="crown" size={14} />}
+                      </span>
+                    </td>
                     <td>{u.displayName || '—'}</td>
                     <td>{u._count.messages}</td>
                     <td style={{ fontSize: 13, color: 'var(--fg-muted)' }}>{new Date(u.lastSeen).toLocaleString()}</td>
@@ -91,7 +105,9 @@ export default function AdminUsersPage() {
                           ) : (
                             <button className="btn btn-danger btn-sm" onClick={() => handleAction('ban', u.id)}>{t('admin.ban')}</button>
                           )}
-                          <button className="btn btn-ghost btn-sm" onClick={() => handleAction('delete', u.id)}>🗑</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleAction('delete', u.id)}>
+                            <AppIcon name="trash" size={14} />
+                          </button>
                         </div>
                       )}
                     </td>

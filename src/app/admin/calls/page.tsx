@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useI18n } from '@/components/providers/I18nProvider';
 import { connectSocket, getSocket } from '@/lib/socket';
 import Link from 'next/link';
+import AppIcon from '@/components/AppIcon';
 
 interface CallInfo {
   callerId: string;
@@ -70,8 +71,16 @@ export default function AdminCallsPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', direction: dir }}>
       <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bg-tertiary)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Link href="/admin" className="btn btn-ghost btn-sm">← {t('common.back')}</Link>
-        <h1 style={{ fontSize: 18, fontWeight: 700 }}>📞 {t('admin.calls')}</h1>
+        <Link href="/admin" className="btn btn-ghost btn-sm">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AppIcon name="arrowLeft" size={14} />
+            <span>{t('common.back')}</span>
+          </span>
+        </Link>
+        <h1 style={{ fontSize: 18, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <AppIcon name="phone" size={18} />
+          <span>{t('admin.calls')}</span>
+        </h1>
       </div>
       <div style={{ padding: 24 }}>
         {/* Active Call */}

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
+import AppIcon, { AppIconName } from '@/components/AppIcon';
 
 interface RoomItem {
   id: string;
@@ -53,13 +54,21 @@ export default function AdminRoomsPage() {
     fetchRooms();
   };
 
-  const typeIcon = (type: string) => type === 'CHANNEL' ? '📢' : type === 'GROUP' ? '👥' : '💬';
+  const typeIcon = (type: string): AppIconName => (type === 'CHANNEL' ? 'channel' : type === 'GROUP' ? 'group' : 'chat');
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', direction: dir }}>
       <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bg-tertiary)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Link href="/admin" className="btn btn-ghost btn-sm">← {t('common.back')}</Link>
-        <h1 style={{ fontSize: 18, fontWeight: 700 }}>💬 {t('admin.rooms')}</h1>
+        <Link href="/admin" className="btn btn-ghost btn-sm">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AppIcon name="arrowLeft" size={14} />
+            <span>{t('common.back')}</span>
+          </span>
+        </Link>
+        <h1 style={{ fontSize: 18, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <AppIcon name="chat" size={18} />
+          <span>{t('admin.rooms')}</span>
+        </h1>
       </div>
       <div style={{ padding: 24 }}>
         <button className="btn btn-primary btn-sm" style={{ marginBottom: 16 }} onClick={() => setShowCreate(!showCreate)}>
@@ -100,7 +109,12 @@ export default function AdminRoomsPage() {
               <tbody>
                 {rooms.map((room) => (
                   <tr key={room.id}>
-                    <td>{typeIcon(room.type)} {room.type}</td>
+                    <td>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <AppIcon name={typeIcon(room.type)} size={14} />
+                        <span>{room.type}</span>
+                      </span>
+                    </td>
                     <td style={{ fontWeight: 500 }}>{room.name}</td>
                     <td>
                       <Link href={`/admin/rooms/${room.id}/members`} className="btn btn-sm btn-ghost">
@@ -109,7 +123,9 @@ export default function AdminRoomsPage() {
                     </td>
                     <td>{room._count.messages}</td>
                     <td>
-                      <button className="btn btn-danger btn-sm" onClick={() => deleteRoom(room.id)}>🗑</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteRoom(room.id)}>
+                        <AppIcon name="trash" size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))}

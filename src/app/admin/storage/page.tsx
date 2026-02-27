@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useI18n } from '@/components/providers/I18nProvider';
 import Link from 'next/link';
+import AppIcon from '@/components/AppIcon';
 
 interface StorageStats {
   totalDisk: string;
@@ -58,8 +59,16 @@ export default function AdminStoragePage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', direction: dir }}>
       <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bg-tertiary)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Link href="/admin" className="btn btn-ghost btn-sm">← {t('common.back')}</Link>
-        <h1 style={{ fontSize: 18, fontWeight: 700 }}>💾 {t('admin.storage')}</h1>
+        <Link href="/admin" className="btn btn-ghost btn-sm">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AppIcon name="arrowLeft" size={14} />
+            <span>{t('common.back')}</span>
+          </span>
+        </Link>
+        <h1 style={{ fontSize: 18, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <AppIcon name="storage" size={18} />
+          <span>{t('admin.storage')}</span>
+        </h1>
       </div>
       <div style={{ padding: 24 }}>
         {loading ? (
@@ -117,7 +126,10 @@ export default function AdminStoragePage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {stats.rooms.map((room) => (
                   <div key={room.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--bg-tertiary)' }}>
-                    <span>{room.type === 'CHANNEL' ? '📢' : '👥'} {room.name} ({room._count.messages} msgs)</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <AppIcon name={room.type === 'CHANNEL' ? 'channel' : 'group'} size={14} />
+                      <span>{room.name} ({room._count.messages} msgs)</span>
+                    </span>
                     <button
                       className="btn btn-danger btn-sm"
                       onClick={() => {
@@ -125,7 +137,10 @@ export default function AdminStoragePage() {
                       }}
                       disabled={actionLoading}
                     >
-                      🗑 {t('admin.cleanupMessages')}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <AppIcon name="trash" size={14} />
+                        <span>{t('admin.cleanupMessages')}</span>
+                      </span>
                     </button>
                   </div>
                 ))}
