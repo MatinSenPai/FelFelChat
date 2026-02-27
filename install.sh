@@ -1428,6 +1428,12 @@ start_server() {
   local port
   port="$(load_env_value PORT)"
   [[ -n "$port" ]] || port="3000"
+
+  # Stop any running instances first (prevents orphaned processes accumulating)
+  if [[ "$(runtime_controller)" != "systemd" ]]; then
+    stop_server 2>/dev/null || true
+  fi
+
   ensure_port_available_for_app "$port" || return 1
   if ! build_artifacts_ready; then
     warn "Build artifacts missing (.next). Running build..."
@@ -1439,10 +1445,6 @@ start_server() {
     return
   fi
 
-  if is_running_fallback; then
-    warn "Server already running (PID $(cat "$PID_FILE"))"
-    return
-  fi
   mkdir -p "$LOG_DIR"
   (cd "$APP_DIR" && nohup env NODE_ENV=production node server.mjs >>"$OUT_LOG" 2>>"$ERR_LOG" & echo $! > "$PID_FILE")
   sleep 1
@@ -1460,18 +1462,38 @@ stop_server() {
     return
   fi
 
-  if ! is_running_fallback; then
-    warn "Server is not running"
+  # Kill the tracked PID if present
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$pid" ]]; then
+      kill "$pid" 2>/dev/null || true
+      sleep 1
+      kill -0 "$pid" >/dev/null 2>&1 && kill -9 "$pid" 2>/dev/null || true
+    fi
     rm -f "$PID_FILE"
-    return
   fi
 
-  local pid
-  pid="$(cat "$PID_FILE")"
-  kill "$pid" || true
-  sleep 1
-  if kill -0 "$pid" >/dev/null 2>&1; then kill -9 "$pid" || true; fi
-  rm -f "$PID_FILE"
+  # Also kill any orphaned app processes not tracked by the PID file
+  # (caused by multiple nohup starts without proper stop)
+  local orphan_pids
+  mapfile -t orphan_pids < <(
+    pgrep -f "node server\.mjs" 2>/dev/null | grep -v "^$$" || true
+    pgrep -f "npm run start" 2>/dev/null | grep -v "^$$" || true
+  )
+  if [[ ${#orphan_pids[@]} -gt 0 ]]; then
+    warn "Killing ${#orphan_pids[@]} orphaned app process(es)..."
+    for p in "${orphan_pids[@]}"; do
+      [[ -n "$p" ]] || continue
+      kill "$p" 2>/dev/null || true
+    done
+    sleep 1
+    for p in "${orphan_pids[@]}"; do
+      [[ -n "$p" ]] || continue
+      kill -0 "$p" >/dev/null 2>&1 && kill -9 "$p" 2>/dev/null || true
+    done
+  fi
+
   ok "Server stopped"
 }
 
