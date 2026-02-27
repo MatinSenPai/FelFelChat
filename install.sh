@@ -1307,10 +1307,52 @@ setup_env_interactive() {
   ok ".env configured"
 }
 
+# ------------------------------------------------------------------
+# ensure_swap: On low-RAM servers (< 2GB), npm ci and Next.js build
+# will be killed by the OOM killer. This creates a temporary swap
+# file to provide the needed headroom.
+# ------------------------------------------------------------------
+ensure_swap() {
+  # Only on Linux
+  [[ -f /proc/meminfo ]] || return 0
+
+  local total_ram_kb swap_total_kb
+  total_ram_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+  swap_total_kb="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)"
+
+  # If total RAM + existing swap >= 2GB, no action needed
+  local total_available=$(( (total_ram_kb + swap_total_kb) / 1024 ))
+  if (( total_available >= 2048 )); then
+    return 0
+  fi
+
+  log "Low memory detected (${total_ram_kb}KB RAM, ${swap_total_kb}KB swap). Creating swap..."
+  local swap_file="/swapfile"
+  if [[ -f "$swap_file" ]] && swapon --show | grep -q "$swap_file"; then
+    log "Swap file already active."
+    return 0
+  fi
+
+  # Create 2GB swap file
+  as_root dd if=/dev/zero of="$swap_file" bs=1M count=2048 status=progress 2>/dev/null || \
+    as_root fallocate -l 2G "$swap_file" 2>/dev/null || {
+      warn "Could not create swap file. npm ci may fail on low-RAM servers."
+      return 0
+    }
+  as_root chmod 600 "$swap_file"
+  as_root mkswap "$swap_file" >/dev/null 2>&1
+  as_root swapon "$swap_file" 2>/dev/null || {
+    warn "Could not activate swap. npm ci may fail on low-RAM servers."
+    return 0
+  }
+  ok "Swap file created and activated (2GB)"
+}
+
 install_dependencies() {
   ensure_node_toolchain
+  ensure_swap
   log "Installing dependencies..."
-  (cd "$APP_DIR" && npm ci)
+  (cd "$APP_DIR" && NODE_OPTIONS="--max-old-space-size=768" npm ci)
   ok "Dependencies installed"
 }
 
@@ -1332,8 +1374,9 @@ run_migrations() {
 
 build_app() {
   ensure_node_toolchain
+  ensure_swap
   log "Building application..."
-  (cd "$APP_DIR" && npm run build)
+  (cd "$APP_DIR" && NODE_OPTIONS="--max-old-space-size=768" npm run build)
   ok "Build complete"
 }
 
