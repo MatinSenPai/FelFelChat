@@ -6,9 +6,9 @@ import { cookies } from 'next/headers';
 
 const prisma = new PrismaClient();
 
-function getTokenUserId(request: NextRequest): string | null {
+async function getTokenUserId(request: NextRequest): Promise<string | null> {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const token = cookieStore.get('token')?.value;
     if (!token) return null;
     const secret = process.env.JWT_SECRET;
@@ -22,7 +22,7 @@ function getTokenUserId(request: NextRequest): string | null {
 
 // GET /api/admin/superadmin — returns current superadmin info (masked)
 export async function GET(request: NextRequest) {
-  const userId = getTokenUserId(request);
+  const userId = await getTokenUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
 // PUT /api/admin/superadmin — change superadmin username/displayName/password
 export async function PUT(request: NextRequest) {
-  const userId = getTokenUserId(request);
+  const userId = await getTokenUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
